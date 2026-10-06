@@ -2,6 +2,7 @@
 import { json } from './response.js';
 import { beijingNow } from './timeutil.js';
 import { one } from './db.js';
+import { settings } from './config.js';
 
 export async function probe(env) {
   const checksMap = { database: false, media: false };
@@ -12,7 +13,7 @@ export async function probe(env) {
     checksMap.database = false;
   }
   try {
-    await env.MEDIA.head('__probe__');
+    await settings(env).storage.head('__probe__');
     checksMap.media = true;
   } catch (error) {
     checksMap.media = false;

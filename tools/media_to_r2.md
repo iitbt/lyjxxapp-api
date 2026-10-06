@@ -19,7 +19,7 @@
    python tools/make_cover_thumbs.py        # 宽度 480 / 800, 输出 news_uploads/_thumb/<宽度>/<名>.webp
    ```
 
-2. 建立 bucket 与公开域（公开域已定：`media.250036.xyz`）：
+2. 建立 bucket 与公开域（公开域已定：`storage.250036.xyz`）：
 
    ```bash
    wrangler r2 bucket create lyjxxapp-r2

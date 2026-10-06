@@ -1,4 +1,4 @@
-// 素材地址: 库里只存相对路径, 下发时拼绝对地址; 素材本体走 R2 公开域(media.250036.xyz)
+// 素材地址: 库里只存相对路径, 下发时拼绝对地址; 素材本体走 R2 公开域(storage.250036.xyz)
 import { settings } from './config.js';
 
 export const NEWS_COVER_THUMB_WIDTH = 480;
@@ -44,7 +44,7 @@ export async function existingThumbs(env, rows, width = NEWS_COVER_THUMB_WIDTH, 
   const checks = await Promise.all(picked.map(async (key) => {
     if (!key) return false;
     try {
-      return !!(await env.MEDIA.head(key));
+      return !!(await settings(env).storage.head(key));
     } catch (error) {
       return false;
     }
@@ -54,6 +54,6 @@ export async function existingThumbs(env, rows, width = NEWS_COVER_THUMB_WIDTH, 
 
 // R2 上传: 头像与后台图片统一走这里
 export async function putObject(env, key, body, contentType) {
-  await env.MEDIA.put(key, body, { httpMetadata: { contentType } });
+  await settings(env).storage.put(key, body, { httpMetadata: { contentType } });
   return key;
 }

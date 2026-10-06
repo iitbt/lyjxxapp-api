@@ -2,7 +2,7 @@
 
 > 项目：`app/api-cf/`（Workers + D1 + R2，**只有对外 API，没有管理后台**）。
 > 迁移设计见 `Plan.md`，接口台账见 `notes/api-inventory.md`，限流方案见 `notes/limits-design.md`，运营改数见 `notes/ops-sql.md`，本地跑法见 `README.md`。
-> 代码与自测已完成（33 条接口、29 条用例全绿），本文件只讲"怎么推上云"。部署动作全部由你执行。
+> 代码与自测已完成（33 条接口、163 条用例全绿），本文件只讲"怎么推上云"。部署动作全部由你执行。
 
 ## 0. 命名约定（固定，不要改）
 
@@ -10,15 +10,16 @@
 |---|---|---|
 | Worker / Pages | **`lyjxxapp-api`** | `wrangler.toml` 的 `name` |
 | D1 数据库 | **`lyjxxapp-d1`** | `wrangler.toml` → `database_name`，绑定名 `DB` |
-| R2 桶 | **`lyjxxapp-r2`** | `wrangler.toml` → `bucket_name`，绑定名 `MEDIA` |
+| R2 桶 | **`lyjxxapp-r2`** | `wrangler.toml` → `bucket_name`，绑定名 **`STORAGE`**（代码只从 `core/config.js` 的 `storage` 取，那里兼容早期的 `MEDIA`） |
 
 **变量与密钥都已经在项目里预置好了 —— 你只需要改值或填密文，不用去控制台一个个新建**：
 
 | 类型 | 在哪 | 内容 | 你要做什么 |
 |---|---|---|---|
 | 变量（明文） | `wrangler.toml` 的 `[vars]` | `MEDIA_BASE`、`DEV_WECHAT_MOCK`、`UPLOAD_MAX_BYTES`、`ENABLE_PUBLIC_PROBE`、`OBSERVABILITY_ENABLED`、`ALLOWED_ORIGINS`（CORS 白名单，`*`=放开）、`ENABLE_SQL_TOOL`（数据库工具开关，默认 `0` 关） | 改值 → 部署时自动写进 Cloudflare（Git 连接部署也会自动带上） |
-| 密钥（密文） | `.secrets.json`（模板 `.secrets.json.example`） | `WECHAT_APPID`、`WECHAT_SECRET` | 填值 → `npm run secrets:put`（等价 `wrangler secret bulk .secrets.json`） |
-| 绑定 | `wrangler.toml` | D1 `DB`→`lyjxxapp-d1`、R2 `MEDIA`→`lyjxxapp-r2`、Cron `17 3 * * *` | 只需先把库与桶建出来（下面第 2、3 步） |
+| 密钥（密文，推给生产） | `.secrets.json`（模板 `.secrets.json.example`） | `WECHAT_APPID`、`WECHAT_SECRET`、`ADMIN_SESSION_SECRET` | 填值 → `npm run secrets:put`（等价 `wrangler secret bulk .secrets.json`，一次推三个） |
+| 密钥（密文，本地开发） | `.dev.vars`（模板 `.dev.vars.example`） | 同上三个 | 只给 `npm run dev`（本地 `wrangler dev`）用；不填则本地登录页会写"后台未就绪" |
+| 绑定 | `wrangler.toml` | D1 `DB`→`lyjxxapp-d1`、R2 `STORAGE`→`lyjxxapp-r2`、Cron `17 3 * * *` | 只需先把库与桶建出来（下面第 2、3 步） |
 
 > 版本号 `API_VERSION` **不是变量**：唯一来源是 `main.js` 顶部的 `API_VERSION`（与旧站 `fastapi/main.py` 的 `APP_VERSION` 同位置），
 > 状态页 / `/health/ready` / `/apitest` 展示它，也是后台静态资源的 `?v=` 缓存键；**改了样式或脚本要顺手升它再部署**。
@@ -26,6 +27,9 @@
 > ⚠️ **库名额**：账号内 D1 已用 **9 / 10**，新建 `lyjxxapp-d1` 会占掉最后一个名额。
 > ⚠️ **R2 桶名与 backend-cf 不同**：backend-cf 用的是 `lyjxxapp-media`，本项目要 **`lyjxxapp-r2`**，需要新建（不是同一个桶）。
 > ⚠️ 密钥不能进仓库：真值文件 `.secrets.json`、`.dev.vars` 已在 `.gitignore` 里，只提交 `.example` 模板。
+> ⚠️ **区域都选亚太**：D1 建库时的 **Location**、R2 建桶时的 **Location** 都选 **Asia Pacific**（就近中国大陆，延迟最低）。
+> D1 的 Location **建库后不能改**（要换只能新建库再导一遍数据），所以第一次建库就选对；R2 桶同理。
+> ⚠️ **`.secrets.json` 与 `.dev.vars` 都要填，但用途不同**：前者推给 Cloudflare（生产），后者只作用于本机 `npm run dev`。
 
 ---
 
@@ -39,14 +43,16 @@
 
 ### A2. 建 D1 数据库
 1. 控制台 → **Workers & Pages → D1**（有的界面叫 **Storage & Databases → D1**）→ **Create database**。
-2. 名字填 **`lyjxxapp-d1`** → 创建。
+2. 名字填 **`lyjxxapp-d1`**，**Location 选 `Asia Pacific`（亚太）** → 创建。
+   > 这个 Location 是**建库时定死的**：选错只能新建库 + 重新导数据（见 A4），别等导完才发现。
 3. 复制那串 **Database ID**（UUID），回 GitHub 编辑 `wrangler.toml`：把 `database_id` 那行注释取消并填上真值 → Commit。
    > 也可以跳过本步：`wrangler.toml` 里 `database_id` **留空**时，首次部署会让 wrangler 按 `database_name` 自动把库建出来（只在控制台可见）。建完仍建议回填，否则本地 `wrangler d1 execute` 定位不到这个库。
 
 ### A3. 建 R2 bucket 并开公开域
-1. **Storage & Databases → R2 → Create bucket**，名字填 **`lyjxxapp-r2`**（保持**私有**，公开读用自定义域单独开）。
-2. 进 bucket → **Settings → Public access → Custom Domain** → 填 **`media.250036.xyz`** → 按提示加 DNS 记录。
-3. 完成后 `https://media.250036.xyz/<key>` 能直接打开对象（先把素材传上去才验证得了，见"素材上传"）。
+1. **Storage & Databases → R2 → Create bucket**，名字填 **`lyjxxapp-r2`**，**Location 选 `Asia Pacific`（亚太）**（桶保持**私有**，公开读用自定义域单独开）。
+2. 进 bucket → **Settings → Public access → Custom Domain** → 填 **`storage.250036.xyz`** → 按提示加 DNS 记录。
+3. 完成后 `https://storage.250036.xyz/<key>` 能直接打开对象（先把素材传上去才验证得了，见"素材上传"）。
+4. 绑定名固定是 **`STORAGE`**（`wrangler.toml` 的 `[[r2_buckets]].binding`）：代码侧统一读 `core/config.js` 的 `storage`，改绑定时只改这一个字段即可（`MEDIA` 是早期名字，代码仍兼容，避免改绑定期出现空窗）。
 
 ### A4. 建表 + 导数据（都在 D1 控制台逐块粘贴）
 
@@ -98,8 +104,42 @@ python scripts\split_sql.py out\seed out\seed.sql
 4. **Deploy**。构建日志若报 *binding DB … database_id* 相关错误 → 回 A2：要么把真值填对，要么把那行**整行注释掉**让 wrangler 自动预置，再 push。
    > Git 连接部署时，`[vars]` 与绑定会**自动生效**（不用去控制台手点）；**Cron 也会跟着部署**。
 
-### A6. 只需配两个密钥
-Worker → **Settings → Variables and Secrets** → 加两个**加密**类型：`WECHAT_APPID`、`WECHAT_SECRET` → 配完 **Deployments → 最新一条 → Retry deployment**。
+### A6. 只需配三个密钥
+Worker → **Settings → Variables and Secrets** → 加三个**加密**类型：`WECHAT_APPID`、`WECHAT_SECRET`、`ADMIN_SESSION_SECRET`（后台会话密钥，32+ 位随机字符）→ 配完 **Deployments → 最新一条 → Retry deployment**。
+
+| 文件 | 作用范围 | 怎么生效 |
+|---|---|---|
+| `.dev.vars`（模板 `.dev.vars.example`） | **只作用于本机** | `npm run dev`（`wrangler dev`）启动时读取；不填则本地后台登录页写"后台未就绪" |
+| `.secrets.json`（模板 `.secrets.json.example`） | **推给 Cloudflare（生产）** | `npm run secrets:put`（= `wrangler secret bulk .secrets.json`）；本地跑 `dev` 时它**不生效** |
+
+> 两个文件都要填（同一个 3 项），但它们互不替代：一个管本机，一个管线上。Git 连接部署时，生产密钥仍要在控制台配一次（或用 B6 的命令推）。
+
+#### 怎么生成 `ADMIN_SESSION_SECRET`
+
+它是后台会话 Cookie 的 **HMAC 签名密钥**：只要一串**随机**字符（32 位以上），**不要**用有意义的口令。任选一种生成方式：
+
+```powershell
+# 方式一（推荐，项目本来就要求 Node 22+）：生成 64 位十六进制
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+
+# 方式二（Windows 自带 PowerShell / .NET，无需额外安装）
+$b = New-Object byte[] 32
+[Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b)
+-join ($b | ForEach-Object { $_.ToString('x2') })
+
+# 方式三（装了 git 就有 openssl）
+openssl rand -hex 32
+```
+
+拿到那串字符后三处任一（推荐前两处都填）：
+
+| 放到哪 | 怎么做 |
+|---|---|
+| `.secrets.json`（生产） | 填 `"ADMIN_SESSION_SECRET": "<那串字符>"` → `npm run secrets:put` |
+| `.dev.vars`（本机） | 填 `ADMIN_SESSION_SECRET="<那串字符>"` → 重启 `npm run dev` |
+| 控制台（不想用命令行时） | Worker → **Settings → Variables and Secrets** → 加**加密**类型 `ADMIN_SESSION_SECRET` → Retry deployment |
+
+注意：① 它是**密文**，别提交进仓库（`.secrets.json` / `.dev.vars` 已在 `.gitignore`）；② **换了它，所有已登录的后台会话立刻失效**（管理员要重新登录，小程序不受影响）；③ 不配它时后台登录页会写"后台未就绪"（不会用默认值放行）。
 
 **想先用假微信走通全流程**：把 `wrangler.toml` 的 `DEV_WECHAT_MOCK` 改成 `"1"` 再部署（不调微信、不做昵称送审，任意 `code` 都能登录，便于验收）；正式上线改回 `"0"` 并配真密钥。
 
@@ -110,13 +150,13 @@ Worker → **Settings → Domains & Routes → Add → Custom domain**。本项�
 | 域名 | 指向 | 用途 |
 |---|---|---|
 | **`lyjx.250036.xyz`** | 这个 Worker（`lyjxxapp-api`） | 小程序接口 **+** 管理后台 `/admin`，同一域名 |
-| `media.250036.xyz` | R2 桶 `lyjxxapp-r2` 的公开域（见 A3） | 素材直读 |
+| `storage.250036.xyz` | R2 桶 `lyjxxapp-r2` 的公开域（见 A3） | 素材直读 |
 
 > 早期规划中的 `api.250036.xyz` / `pages.250036.xyz` **没有采用**：`api.250036.xyz` 至今指向旧站 FastAPI（也是回滚线路），
 > 而协议 / 隐私 / 下载等静态页由同一个 Worker 的 `/pages/*` 提供，不需要单独的 Pages 项目。
 
 **顺手加白名单**：微信公众平台 → 开发管理 → 服务器域名 → **request 合法域名**：
-`https://lyjx.250036.xyz`、`https://media.250036.xyz`（旧线路 `https://api0.250036.xyz` 一起留着，回滚要用）。
+`https://lyjx.250036.xyz`、`https://storage.250036.xyz`（旧线路 `https://api0.250036.xyz` 一起留着，回滚要用）。
 
 ### A8. 进管理后台（`/admin`）
 
@@ -220,13 +260,16 @@ wrangler whoami
 
 ### B2. 建 D1 并回填 id
 ```powershell
-wrangler d1 create lyjxxapp-d1
+wrangler d1 create lyjxxapp-d1 --location apac
+# --location apac = 亚太(就近中国大陆); 控制台建库就是 Location 选 Asia Pacific
+# 这个位置建库后不可改, 选错只能新建库再导一遍数据
 # 把输出的 database_id 填回 wrangler.toml 的 [[d1_databases]].database_id
 ```
 
 ### B3. 建 R2 bucket
 ```powershell
-wrangler r2 bucket create lyjxxapp-r2
+wrangler r2 bucket create lyjxxapp-r2 --location apac
+# 同样选亚太; 绑定名固定 STORAGE(见 wrangler.toml 的 [[r2_buckets]] 与 A3 第 4 步)
 wrangler r2 bucket list
 ```
 
@@ -256,17 +299,18 @@ python scripts\verify_counts.py ..\..\fastapi\data\lyjx.db      # 必须 0 差�
 ```powershell
 # 1) 复制模板并填真值
 copy .secrets.json.example .secrets.json
-#    编辑 .secrets.json: {"WECHAT_APPID":"...","WECHAT_SECRET":"..."}
+#    编辑 .secrets.json: {"WECHAT_APPID":"...","WECHAT_SECRET":"...","ADMIN_SESSION_SECRET":"..."}
 # 2) 一条命令推上 Cloudflare
 npm run secrets:put
 #    等价: wrangler secret bulk .secrets.json
 ```
-> 若你的 wrangler 版本不支持 `secret bulk`（以官方文档为准），退回逐条：`wrangler secret put WECHAT_APPID`、`wrangler secret put WECHAT_SECRET`。
-> 本地开发用 `.dev.vars`（`copy .dev.vars.example .dev.vars` 后填值），变量仍来自 `wrangler.toml` 的 `[vars]`。
+> 若你的 wrangler 版本不支持 `secret bulk`（以官方文档为准），退回逐条：`wrangler secret put WECHAT_APPID`、`wrangler secret put WECHAT_SECRET`、`wrangler secret put ADMIN_SESSION_SECRET`。
+> 本地开发用 `.dev.vars`（`copy .dev.vars.example .dev.vars` 后填同一个三项），变量仍来自 `wrangler.toml` 的 `[vars]`。
+> 一句话记：**`.dev.vars` 管本机 `npm run dev`，`.secrets.json` 管生产 `npm run secrets:put`** —— 两个都填。
 
 ### B7. 本地自检（部署前）
 ```powershell
-npm test          # 29 条用例, 应全绿(不需要账号与网络)
+npm test          # 163 条用例, 应全绿(不需要账号与网络)
 npm run dev       # 本地起服务 http://127.0.0.1:8787, 先看 / 与 /health/ready
 ```
 
@@ -277,7 +321,7 @@ npm run deploy    # 等价 wrangler deploy; 成功会给出 https://lyjxxapp-api
 
 ### B9. 自定义域
 ```toml
-# wrangler.toml 里加, 然后重新部署(媒体域 media.250036.xyz 不在这里 —— 它绑的是 R2 桶, 见 A3)
+# wrangler.toml 里加, 然后重新部署(媒体域 storage.250036.xyz 不在这里 —— 它绑的是 R2 桶, 见 A3)
 routes = [
   { pattern = "lyjx.250036.xyz", custom_domain = true }
 ]
@@ -327,7 +371,25 @@ jobs:
    wrangler r2 object put lyjxxapp-r2/images/user.jpg --file=..\..\fastapi\app\images\user.jpg
    # 文件多时用 rclone(需 R2 的 S3 凭据): rclone copy ..\..\fastapi\app\images r2:lyjxxapp-r2/images
    ```
-4. 抽查：`https://media.250036.xyz/news_uploads/home/<某个图>` 能打开；缩略图缺失时列表自动回退原图（不会白图）。
+4. 抽查：`https://storage.250036.xyz/news_uploads/home/<某个图>` 能打开；缩略图缺失时列表自动回退原图（不会白图）。
+
+---
+
+## 素材对外域名（`MEDIA_BASE`）怎么选
+
+库里只存**相对路径**（`news_uploads/home/a.jpg`），下发时由 Worker 拼上 `MEDIA_BASE`。两种填法都能用：
+
+| 填法 | 值 | 谁在服务素材 | 什么时候选它 |
+|---|---|---|---|
+| **A. R2 公开域（推荐）** | `https://storage.250036.xyz`（A3 建的自定义域） | 直接由 R2 边缘返回 | 默认。**不吃 Worker 请求额度、不经 Worker CPU**；视频 Range/拖动由 R2 原生支持；缓存命中率最高 |
+| B. Worker 域名 | `https://lyjx.250036.xyz` | Worker 从 R2 读出来再返回 | 想少维护一个域名时用。`/news_uploads/*`、`/avatar_uploads/*`、`/images/*` 三个前缀都已由 Worker 直出（带 `etag`、`cache-control: max-age=604800`、`accept-ranges`，Range 回 **206**），与旧站 `StaticFiles` 挂载同口径 |
+
+要点：
+
+- 换成 B 只需改 `[vars]` 的 `MEDIA_BASE` 后重新部署，**代码不用动**（旧库里存的是相对路径，不涉及数据迁移）。
+- 选 B 的代价：每条图片/视频请求都算一次 Worker 请求（免费套餐 100,000 次/日）并占用 CPU 时间；列表页一屏十几张图就十几个请求。素材量大时优先 A。
+- 选 B 时**微信公众平台的 request 合法域名**只需保留 `https://lyjx.250036.xyz`（`storage.250036.xyz` 可留可不留，回滚要用就留着）。
+- 不管选哪个，`/images/*`（包内图标）始终由 Worker 直出（旧站也是 StaticFiles，与素材域无关）。
 
 ---
 
@@ -342,7 +404,7 @@ jobs:
 | 服务侧 | Worker 路由 `GET /favicon.ico`，返回内联字节（在 `/images/*` 判定之后、路由表之前） | Workers/Pages 上 `/favicon.ico` 只是一次普通请求，**不会自动命中静态托管**；图标必须由 Worker 自己响应 |
 | 响应头 | `content-type: image/x-icon`、`cache-control: public, max-age=604800`、`etag`（内容指纹） | 浏览器对图标是**按地址缓存**的：没有长缓存 + 稳定 ETag，每个页面都会再拉一次（旧站 StaticFiles 给的也是 `max-age=604800`） |
 | 换图标 | 覆盖 `app/favicon.ico` → `node tools/embed_favicon.mjs` → 升 `main.js` 的 `API_VERSION` → 部署 | 生成物与版本号联动，避免"换了图标但用户看到的是旧缓存" |
-| 后端直出 | 不依赖 R2 里有没有该对象，也不额外消耗 R2 子请求 | 线上 2.1.2 的 `/favicon.ico` 就是"R2 没这个对象 → 404" |
+| 后端直出 | 不依赖 R2 里有没有该对象，也不额外消耗 R2 子请求 | 内联之前线上 `/favicon.ico` 就是"R2 里没这个对象 → 404" |
 
 部署后自查：
 
@@ -362,6 +424,9 @@ curl.exe -I https://lyjx.250036.xyz/favicon.ico
 |---|---|
 | `GET /` | HTML 状态页（服务名 + 运行中药丸 / 服务器时间·走动 / 进程启动时间·当前 isolate / 数据统计 6 项 / 依赖状态监控 D1+R2 与总连接状态 / 使用说明），与旧站 `templates/status.html` 同形 |
 | `GET /favicon.ico` | **200** + `content-type: image/x-icon` + `cache-control: public, max-age=604800`（内联字节直出，不需要往 R2 传） |
+| `GET /images/<已上传的图>` | **200** + `etag` + `cache-control: public, max-age=604800` + `accept-ranges: bytes` |
+| `GET /news_uploads/home/<已上传的图>`（或 `/avatar_uploads/...`） | 同上；带 `Range: bytes=0-1023` 时回 **206** + `content-range`（视频拖动/续播靠它） |
+| `GET /news_uploads/<不存在的对象>` | **404**；R2 绑定名写错时是 **502**（说明 `wrangler.toml` 与桶没对上） |
 | `GET /?format=json` | `{"name":"狼牙极限运动笔记API","description":"本服务为…数据服务。","status":"运行中","server_time"}`（name/description/status 三值与旧站逐字一致） |
 | `GET /health` | **裸结构**（无 code 包装）`{"status":"ok","service":"狼牙极限运动笔记API","uptime_s":0,"server_time",checks:{database,media}}` |
 | `GET /health/ready` | **裸结构**（无 code 包装）`{"status":"ready",version,server_time,checks}`；D1 或 R2 不通时 **503** 且 `status:"starting"` |
@@ -398,14 +463,14 @@ curl.exe -I https://lyjx.250036.xyz/favicon.ico
 | `Not logged in` / 需要 API Token | 没登录 | B1 |
 | 部署报 `database_id` 相关错误（code 10021） | `database_id` 是占位符或填错；它**只有整行注释掉**时 wrangler 才会自动建库 | 回 A2 填真值，或注释掉该行再 push |
 | `/health/ready` 里 `checks.database:false` | 绑定名不是 `DB`，或库不是 `lyjxxapp-d1` | 名字必须一致 |
-| `checks.media:false` | 绑定名不是 `MEDIA`，或桶不是 `lyjxxapp-r2` | 名字必须一致 |
+| `checks.media:false` | 绑定名不是 `STORAGE`（或早期 `MEDIA`），或桶不是 `lyjxxapp-r2` | 名字必须与 `wrangler.toml` 的 `[[r2_buckets]].binding` 一致 |
 | 图片/头像地址是空串 | `MEDIA_BASE` 没配（或写成别的域名） | 改 `[vars]` 的 `MEDIA_BASE` → 重新部署 |
 | 登录报「微信登录失败，请稍后重试」 | 密钥没推上去（`npm run secrets:put`）或 AppID 不对 | 重推密钥；本地联调可先 `DEV_WECHAT_MOCK="1"` |
 | 菜单图标 404 | `app/images` 没传到 R2 的 `images/` 前缀 | 见"素材上传"第 3 条 |
 | 系统信息里"业务表数量/记录总数"显示 **统计失败，无法判定** | 行数统计那条查询没跑通（2026-10-06 线上曾因表清单混进 D1 内部表 `_cf_KV` 而整条统计失败） | 页面会直接显示失败原因原文；修好后正常显示张数与总数。若原因里出现 `_cf_` 之类内部表，说明表清单过滤需要更新（见 `app/core/overview.js` 的 `tableNames`） |
 | 列表里没有 `image_thumb` | 缩略图没预生成（正常回退，显示原图） | 跑 `tools\make_cover_thumbs.py` 后重传 |
 | 改了变量/密钥但没生效 | 运行中的是旧部署 | Retry deployment / `npm run deploy` 再来一次 |
-| 小程序请求被微信拦 | 服务器域名白名单没加 | 加 `lyjx.250036.xyz` 与 `media.250036.xyz`（旧线路 `api0.250036.xyz` 一起留着，回滚要用） |
+| 小程序请求被微信拦 | 服务器域名白名单没加 | 加 `lyjx.250036.xyz` 与 `storage.250036.xyz`（旧线路 `api0.250036.xyz` 一起留着，回滚要用） |
 | 访问 `/admin` 看到"后台未就绪" | 没配 `ADMIN_SESSION_SECRET` | 见 A8 第 2 步（加密变量），配完重新部署 |
 | `/admin/bootstrap` 说"已经初始化过" | `admin_users` 里已有账号 | 直接去 `/admin/login`；**忘了口令**就 `DELETE FROM admin_users;` 后重新 bootstrap（A8 有完整步骤） |
 | 登录总说"用户名或密码不正确" | 输错了，或 15 分钟内的失败次数到了上限（5 次/IP） | 等窗口过期再试；急着清就 `DELETE FROM rate_limit_counters WHERE scope='login'` |

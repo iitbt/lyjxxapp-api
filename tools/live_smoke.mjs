@@ -52,8 +52,8 @@ const d1 = {
 
 const env = {
   DB: d1,
-  MEDIA: { head: async () => null, get: async () => null, put: async () => ({}) },
-  MEDIA_BASE: 'https://media.250036.xyz',
+  STORAGE: { head: async () => null, get: async () => null, put: async () => ({}) },
+  MEDIA_BASE: 'https://storage.250036.xyz',
   DEV_WECHAT_MOCK: '1',
   UPLOAD_MAX_BYTES: '20971520',
   ENABLE_PUBLIC_PROBE: '1'
@@ -139,7 +139,7 @@ check('计数写进了 rate_limit_counters', !!counter && counter.count >= 60, J
 
 // 5. 内容与配置(全真实数据)
 const banners = await call('/content/get_banners');
-check('GET /content/get_banners 是 code=0 且带图', banners.body.code === 0 && Array.isArray(banners.body.data) && String(banners.body.data[0]?.image_url || '').startsWith('https://media.'), JSON.stringify(banners.body).slice(0, 140));
+check('GET /content/get_banners 是 code=0 且带图', banners.body.code === 0 && Array.isArray(banners.body.data) && String(banners.body.data[0]?.image_url || '').startsWith(env.MEDIA_BASE), JSON.stringify(banners.body).slice(0, 140));
 const outdoor = await call('/content/get_outdoor');
 check('GET /content/get_outdoor 四键 + 无 video_url 键', outdoor.body.code === 200 && outdoor.body.status === 'success' && outdoor.body.data[0] && !('video_url' in outdoor.body.data[0]) && 'can_watch_video' in outdoor.body.data[0], JSON.stringify(outdoor.body).slice(0, 160));
 const notices = await call('/content/get_notices?page=1&page_size=5');

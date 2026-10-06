@@ -22,8 +22,8 @@ export function makeAdminEnv(options = {}) {
     ADMIN_SESSION_SECRET: 'test-secret',
     ADMIN_ACCESS_MODE: 'access',
     MEDIA_BASE: 'https://media.test',
-    // R2 桩: list 回 options.mediaObjects, put 记录 key, head 由 options.mediaHead 决定
-    MEDIA: {
+    // R2 桩(绑定名与 wrangler.toml 一致): list 回 options.mediaObjects, put 记录 key, head 由 options.mediaHead 决定
+    STORAGE: {
       list: async () => ({ objects: options.mediaObjects || [] }),
       head: async (key) => (options.mediaHead ? options.mediaHead(key) : null),
       get: async () => null,

@@ -1,4 +1,7 @@
 # 本地开发用的密钥(复制成 .dev.vars 再填值, .dev.vars 已被 gitignore)
 # 变量不用写在这里: 它们来自 wrangler.toml 的 [vars]
+# 这个文件只管本机 `npm run dev`; 推给 Cloudflare 的是 .secrets.json(见 DEPLOY.md 的 A6/B6)
 WECHAT_APPID=""
 WECHAT_SECRET=""
+# 后台会话密钥(32+ 位随机字符): 不填则本地后台登录页提示"后台未就绪"
+ADMIN_SESSION_SECRET=""

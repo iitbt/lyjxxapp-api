@@ -27,15 +27,15 @@ test('时间固定东八区且与库内字符串口径一致', () => {
 });
 
 test('素材地址: 相对路径拼媒体域, 绝对地址与包内图标原样', () => {
-  const env = { MEDIA_BASE: 'https://media.250036.xyz/' };
-  assert.equal(assetUrl(env, 'news_uploads/a.png'), 'https://media.250036.xyz/news_uploads/a.png');
-  assert.equal(assetUrl(env, '/news_uploads/a.png'), 'https://media.250036.xyz/news_uploads/a.png');
+  const env = { MEDIA_BASE: 'https://storage.250036.xyz/' };
+  assert.equal(assetUrl(env, 'news_uploads/a.png'), 'https://storage.250036.xyz/news_uploads/a.png');
+  assert.equal(assetUrl(env, '/news_uploads/a.png'), 'https://storage.250036.xyz/news_uploads/a.png');
   assert.equal(assetUrl(env, 'https://gitee.com/x/y.png'), 'https://gitee.com/x/y.png');
   assert.equal(assetUrl(env, 'wxfile://tmp/x.png'), 'wxfile://tmp/x.png');
   assert.equal(assetUrl(env, ''), '');
   assert.equal(assetUrl(env, '', '/images/user.jpg'), '/images/user.jpg');
   assert.equal(iconAssetUrl(env, '/images/like.png'), '/images/like.png');
-  assert.equal(iconAssetUrl(env, 'news_uploads/icon.png'), 'https://media.250036.xyz/news_uploads/icon.png');
+  assert.equal(iconAssetUrl(env, 'news_uploads/icon.png'), 'https://storage.250036.xyz/news_uploads/icon.png');
 });
 
 test('缩略图路径: 只有 news_uploads 下的封面派生, 目录固定 _thumb/<宽度>/', () => {

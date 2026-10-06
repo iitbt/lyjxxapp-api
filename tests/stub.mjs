@@ -37,9 +37,12 @@ export function makeEnv(options = {}) {
       },
       batch: async (list) => list.map(() => ({ meta: { changes: 1 } }))
     },
-    MEDIA: {
+    STORAGE: {
       head: async () => (media.head === undefined ? null : media.head),
-      get: async () => (media.get === undefined ? null : media.get),
+      get: async (key, opts) => {
+        if (media.get === undefined) return null;
+        return typeof media.get === 'function' ? media.get(key, opts) : media.get;
+      },
       put: async () => ({})
     },
     MEDIA_BASE: 'https://media.test',

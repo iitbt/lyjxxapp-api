@@ -29,6 +29,8 @@ export function settings(env) {
     siteShort: str(e.SITE_SHORT) || '狼牙极限',
     // 素材对外域名(库里只存相对路径, 下发时拼这个前缀); 空 = 未配置
     mediaBase: str(e.MEDIA_BASE),
+    // R2 桶绑定: 以 wrangler.toml 的 [[r2_buckets]].binding = "STORAGE" 为准, 兼容早期的 MEDIA 绑定名
+    storage: e.STORAGE || e.MEDIA || null,
     // 密钥未配置时也走假数据分支(旧站同口径: 没配 secret 就 mock)
     devWechatMock: str(e.DEV_WECHAT_MOCK) === '1',
     wechatAppid: str(e.WECHAT_APPID),

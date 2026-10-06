@@ -21,11 +21,12 @@ import { registerAppConfigRoutes } from './app/api/app_config.js';
 import { registerNewsRoutes } from './app/api/news.js';
 import { registerUserRoutes } from './app/api/user.js';
 import { faviconResponse } from './app/core/favicon.js';
+import { settings } from './app/core/config.js';
 
 // 版本号(**唯一来源**): 与旧站 fastapi/main.py 的 APP_VERSION 同一处 ——
 // 状态页 / /health/ready / /apitest 展示它, 后台静态资源的 ?v= 缓存键也用它。
 // 改版本只改这一行; wrangler.toml 里不再有 API_VERSION, 也不再有第二份默认值。
-export const API_VERSION = '2.1.4';
+export const API_VERSION = '2.1.5';
 
 // ==== 路由装配(对应旧站 main.py 的 include_router 段) ====
 const router = createRouter();
@@ -44,15 +45,45 @@ export function routeTable() {
 }
 
 // ==== 媒体直出(旧站是 StaticFiles 挂载) ====
-// /images/* 只服务 R2 的 images/ 前缀(包内图标等); 笔记/头像素材走公开域 media.250036.xyz
-async function serveObject(env, key) {
+// 三个前缀都从 R2 读: /images/(包内图标) /news_uploads/(笔记素材) /avatar_uploads/(头像)
+const MEDIA_PREFIXES = ['/images/', '/news_uploads/', '/avatar_uploads/'];
+
+// 解析单段 Range: 旧站 StaticFiles 支持 Range, 视频拖动/续播依赖它
+function rangeOf(header) {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(String(header || '').trim());
+  if (!match) return null;
+  const [, start, end] = match;
+  if (start === '' && end === '') return null;
+  if (start === '') return { suffix: Number(end) };
+  const offset = Number(start);
+  if (end === '') return { offset };
+  const length = Number(end) - offset + 1;
+  return length > 0 ? { offset, length } : null;
+}
+
+async function serveObject(env, key, request) {
+  const bucket = settings(env).storage;
+  if (!bucket) {
+    logError('media.binding_missing', new Error('R2 绑定缺失'), { key });
+    return new Response('storage not bound', { status: 502 });
+  }
   try {
-    const object = await env.MEDIA.get(key);
+    const range = rangeOf(request && request.headers.get('range'));
+    const object = range ? await bucket.get(key, { range }) : await bucket.get(key);
     if (!object) return new Response('not found', { status: 404 });
     const headers = new Headers();
     object.writeHttpMetadata(headers);
     headers.set('etag', object.httpEtag);
     headers.set('cache-control', 'public, max-age=604800');
+    headers.set('accept-ranges', 'bytes');
+    if (range && object.range) {
+      const offset = Number(object.range.offset) || 0;
+      const length = object.range.length === undefined
+        ? Math.max(0, Number(object.size) - offset)
+        : Number(object.range.length);
+      headers.set('content-range', `bytes ${offset}-${offset + Math.max(0, length - 1)}/${object.size}`);
+      return new Response(object.body, { status: 206, headers });
+    }
     return new Response(object.body, { headers });
   } catch (error) {
     logError('media.read_failed', error, { key });
@@ -84,8 +115,17 @@ export default {
       return withHeaders(await handleAdmin(request, env, { version: API_VERSION }), requestId, corsHeaders);
     }
 
-    if (url.pathname.startsWith('/images/')) {
-      return withHeaders(await serveObject(env, decodeURIComponent(url.pathname.replace(/^\/+/, ''))), requestId, corsHeaders);
+    if (MEDIA_PREFIXES.some((prefix) => url.pathname.startsWith(prefix))) {
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        return withHeaders(new Response(null, { status: 405, headers: { allow: 'GET, HEAD' } }), requestId, corsHeaders);
+      }
+      let key = '';
+      try {
+        key = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
+      } catch (error) {
+        return withHeaders(new Response('bad request', { status: 400 }), requestId, corsHeaders);
+      }
+      return withHeaders(await serveObject(env, key, request), requestId, corsHeaders);
     }
     if (url.pathname === '/favicon.ico') {
       // 站点图标由 Worker 内联字节直出(见 core/favicon.js): 不依赖 R2 里有没有该对象, 也省一次子请求

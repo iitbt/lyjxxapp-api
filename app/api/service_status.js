@@ -22,7 +22,7 @@ async function timed(step) {
 /** 依赖探测: D1 与 R2(旧站是"逐个 DB 配置探活", 这里对应两个平台依赖)。 */
 async function probe(env) {
   const database = await timed(() => one(env, 'SELECT 1 AS c'));
-  const media = await timed(() => env.MEDIA.head('__probe__'));
+  const media = await timed(() => settings(env).storage.head('__probe__'));
   return { database, media };
 }
 

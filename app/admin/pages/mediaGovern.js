@@ -133,7 +133,7 @@ function denied(ctx) {
 
 async function thumbUsage(env) {
   try {
-    const listed = await env.MEDIA.list({ prefix: `${NEWS_PREFIX}_thumb/`, limit: 1000 });
+    const listed = await settings(env).storage.list({ prefix: `${NEWS_PREFIX}_thumb/`, limit: 1000 });
     const objects = (listed && listed.objects) || [];
     let bytes = 0;
     for (const object of objects) bytes += Number(object.size) || 0;

@@ -3,9 +3,10 @@
 // 旧站 storage.py 管三件事: 目录扫描(素材清单)、删除文件、路径归一化; 素材治理页与素材库弹窗都调它,
 // 所以"素材清单只有一份实现"是旧站的硬约定(media_admin.py 头注释: 引用判定也只有一个来源)。
 // Cloudflare 侧对应关系:
-//   os.walk(目录)      → env.MEDIA.list({ prefix, cursor })
-//   os.remove(文件)    → env.MEDIA.delete(key)
+//   os.walk(目录)      → R2 桶 list({ prefix, cursor })
+//   os.remove(文件)    → R2 桶 delete(key)
 //   文件 mtime/size    → 对象 uploaded/size
+import { settings } from './config.js';
 import { MAX_SCAN_OBJECTS } from './overview.js';
 
 //: 素材在库内的相对记录值前缀(与旧站 storage.NEWS_DIR_NAME 一致)
@@ -49,7 +50,7 @@ export async function listNewsMedia(env, kind = 'image', options = {}) {
   try {
     // 逐页拉取: 单次 1000 上限, 直到取够 max+1 或没有 next 游标
     for (let round = 0; round < 5; round += 1) {
-      const listed = await env.MEDIA.list({ prefix: NEWS_PREFIX, limit: 1000, cursor });
+      const listed = await settings(env).storage.list({ prefix: NEWS_PREFIX, limit: 1000, cursor });
       const objects = (listed && listed.objects) || [];
       for (const object of objects) {
         const key = String(object.key || '');
@@ -98,7 +99,7 @@ export async function mediaUsage(env) {
 export async function removeMediaFile(env, relativePath) {
   const key = normRel(relativePath);
   if (!key || key.includes('..')) return false;
-  await env.MEDIA.delete(key);
+  await settings(env).storage.delete(key);
   return true;
 }
 

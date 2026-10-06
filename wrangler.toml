@@ -6,21 +6,25 @@ compatibility_date = "2026-10-04"
 
 # ==== 资源绑定: 部署时 Cloudflare 按下面这些名字自动挂上 ====
 # D1: 库名固定 lyjxxapp-d1; database_id 留空时由 wrangler 首次部署按 database_name 自动建库
+# 建库时 Location 选亚太(命令行: wrangler d1 create lyjxxapp-d1 --location apac) —— 位置建库后不可改
 [[d1_databases]]
 binding = "DB"
 database_name = "lyjxxapp-d1"
 # 部署成功后必须把控制台里的 Database ID 回填到下面这行(本地 d1 execute 与 scripts 全靠它定位库)
 # database_id = "<Database ID>"
 
-# R2: 桶名必须是 lyjxxapp-r2
+# R2: 桶名必须是 lyjxxapp-r2, 绑定名固定 STORAGE(代码只从 core/config.js 的 storage 取, 兼容早期的 MEDIA)
+# 建桶时 Location 选亚太(命令行: wrangler r2 bucket create lyjxxapp-r2 --location apac)
 [[r2_buckets]]
-binding = "MEDIA"
+binding = "STORAGE"
 bucket_name = "lyjxxapp-r2"
 
 # ==== 变量(非密文): 部署时随代码一起写进 Cloudflare, 你只改值 ====
 [vars]
 # 素材对外域名(库里只存相对路径, 下发时拼这个前缀)
-MEDIA_BASE = "https://media.250036.xyz"
+# 两种都行: ① R2 公开域(推荐, 不经 Worker); ② Worker 域名(少一个域名, 但吃 Worker 请求额度)
+# 换成 Worker 域名时 /images/* /news_uploads/* /avatar_uploads/* 已由 Worker 直出, 代码不用改
+MEDIA_BASE = "https://storage.250036.xyz"
 # 版本号**不在这里**: 唯一来源是 main.js 的 `API_VERSION`(与旧站 fastapi/main.py 的 APP_VERSION 同位置)
 # 1 = 微信走本地假数据(联调), 0 = 真调 api.weixin.qq.com
 DEV_WECHAT_MOCK = "0"
@@ -43,8 +47,8 @@ ENABLE_SQL_TOOL = "1"
 # ==== 密钥(密文): 不写进仓库 ====
 # 首次或改值时: 编辑 .secrets.json(模板 .secrets.json.example, 已被 gitignore), 然后
 #   npm run secrets:put      # 等价于 wrangler secret bulk .secrets.json
-# 本地开发用 .dev.vars(模板 .dev.vars.example, 已被 gitignore)
-# 需要两个: WECHAT_APPID、WECHAT_SECRET; 想临时用假微信登录就把 DEV_WECHAT_MOCK 改成 "1"
+# 本地开发用 .dev.vars(模板 .dev.vars.example, 已被 gitignore): 只作用于本机 npm run dev
+# 需要三个: WECHAT_APPID、WECHAT_SECRET、ADMIN_SESSION_SECRET; 想临时用假微信登录就把 DEV_WECHAT_MOCK 改成 "1"
 
 # 定时任务: 每天清一次过期的限流计数行(见 main.js 的 scheduled)
 [triggers]

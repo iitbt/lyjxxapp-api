@@ -36,8 +36,10 @@ tests/                   node --test 用例(142 条), 用函数桩模拟 D1/R2, 
 
 # 1. 建库: 首次部署可交给 wrangler 自动建(wrangler.toml 里 database_id 留空), 部署后把控制台的 Database ID 回填
 #    也可以先手动建: wrangler d1 create lyjxxapp-d1 → 把返回的 database_id 填回 wrangler.toml
+#    控制台建库时 Location 选 Asia Pacific(亚太): 该位置建库后不可改
 
-# 2. 建 R2 桶并绑定公开域 media.250036.xyz(自定义域在控制台加)
+# 2. 建 R2 桶(Location 同样选 Asia Pacific)并绑定公开域 storage.250036.xyz(自定义域在控制台加)
+#    绑定名固定 STORAGE(见 wrangler.toml 的 [[r2_buckets]])
 wrangler r2 bucket create lyjxxapp-r2
 
 # 3. 微信凭据: 编辑 .secrets.json(模板 .secrets.json.example), 然后一条命令推上去
@@ -64,15 +66,16 @@ npm run deploy
 | 类型 | 放在哪 | 你要做什么 |
 |---|---|---|
 | 变量（明文） | `wrangler.toml` 的 `[vars]`：`MEDIA_BASE`、`DEV_WECHAT_MOCK`、`UPLOAD_MAX_BYTES`、`ENABLE_PUBLIC_PROBE`、`OBSERVABILITY_ENABLED`、`ALLOWED_ORIGINS`、`ENABLE_SQL_TOOL` | 需要改就改值 → 重新部署，部署时自动写进 Cloudflare，**不用去控制台手点** |
-| 密钥（密文） | `.secrets.json`（模板 `.secrets.json.example`）：`WECHAT_APPID`、`WECHAT_SECRET` | 填值 → `npm run secrets:put` 一条命令；本地开发放 `.dev.vars`（模板 `.dev.vars.example`） |
-| 绑定 | `wrangler.toml`：D1 `DB` → `lyjxxapp-d1`、R2 `MEDIA` → `lyjxxapp-r2` | 只需先把库与桶建好（`wrangler d1 create lyjxxapp-d1` / `wrangler r2 bucket create lyjxxapp-r2`） |
+| 密钥（密文，生产） | `.secrets.json`（模板 `.secrets.json.example`）：`WECHAT_APPID`、`WECHAT_SECRET`、`ADMIN_SESSION_SECRET` | 填值 → `npm run secrets:put`（= `wrangler secret bulk`）一条命令推三个 |
+| 密钥（密文，本机） | `.dev.vars`（模板 `.dev.vars.example`）：同样三个 | 只给 `npm run dev` 用；**两个文件都要填，互不替代**（一个管本机、一个管线上） |
+| 绑定 | `wrangler.toml`：D1 `DB` → `lyjxxapp-d1`、R2 **`STORAGE`** → `lyjxxapp-r2` | 只需先把库与桶建好（`wrangler d1 create lyjxxapp-d1` / `wrangler r2 bucket create lyjxxapp-r2`）；代码侧只读 `core/config.js` 的 `storage`（兼容早期绑定名 `MEDIA`） |
 
 ## 二、本地开发与自测
 
 ```bash
 npm run schema:local   # 本地 SQLite 建表(0001+0002+0003 中的前两个 + 0003 按需)
 npm run dev            # wrangler dev --local, 默认 http://127.0.0.1:8787
-npm test               # node --test, 28 条用例, 不需要网络与云账号
+npm test               # node --test, 163 条用例, 不需要网络与云账号
 ```
 
 手工验收（`wrangler dev` 起来后，把 33 条逐条打一遍；`/news/list` 要同时试带 `page` 与不带 `page`）：
@@ -131,11 +134,13 @@ node tools/diff_api.mjs --old https://api0.250036.xyz --new http://127.0.0.1:878
 5. **`/health` 的 `uptime_s` 固定 0**（Worker 没有进程概念）；`/health/ready` 返回裸结构，未就绪 503；`checks` 字段是 `database/media`（旧站是 `serving_cache/cache_backend`，Worker 无缓存概念）。
 6. **`/metrics`** 仅在 `OBSERVABILITY_ENABLED=1` 时输出最小 Prometheus 文本（指标集比旧站小）。
 7. **`/pages/download`** 是本次新增页面（旧站没有），文案可用 `app_texts` 的 `download.tip` 覆盖。
-8. **`/images/*` 由 Worker 从 R2 的 `images/` 前缀读取**，所以 `app/images` 的 4 个文件必须上传，否则菜单图标会 404。
-9. **管理功能**：**已全量迁移**（18 个页面，含数据库工具与素材库治理），见 `app/admin/README.md`；仍未实现的是 ffmpeg（旧站也没有）与进程内缓存（先不加）。
-10. **框架层状态码与旧站一致**：未知路由 = 真 HTTP 404（`{code:404,msg:"接口不存在"}`）、未捕获异常 = 真 HTTP 500、请求体 >5MB = 413、`/apitest` 关闭 = HTTP 404 + `code:404` + `接口已关闭`。**业务失败仍是 HTTP 200 + `body.code`**（这条是硬口径，别改）。
-11. **CORS**：`ALLOWED_ORIGINS` 默认 `*`（与迁移前一致，小程序不带 Origin 不受影响）；填域名后只回白名单内的 Origin，且不启用 `allow-credentials`（旧站也是 `False`）。
-12. **参数语义对齐**：`intOf` = 旧站 `intval`（`int(float(v))`、溢出夹 `±2^31`、非法回退）；`/news/list` 的 `page` 夹到 1000；`/content/get_notice_unread` 未登录回 **200 + `未登录` + 空数据**（旧站口径，不是 401）；请求体上限 5MB（旧站 `BODY_LIMIT_BYTES`），multipart 豁免。
+8. **`/images/*`、`/news_uploads/*`、`/avatar_uploads/*` 三个前缀都由 Worker 从 R2 直出**（旧站是 `StaticFiles` 挂载，同样支持 Range/206），所以 `app/images` 的 4 个文件必须上传，否则菜单图标会 404。
+9. **素材对外域名 `MEDIA_BASE` 可填两种**：① R2 公开域 `https://storage.250036.xyz`（**推荐**，不经 Worker，不吃请求额度）；② Worker 域名 `https://lyjx.250036.xyz`（少维护一个域名，但每条图片/视频请求都算一次 Worker 请求）。换法只是改 `[vars]` 后重新部署，代码与数据都不用动。
+10. **管理功能**：**已全量迁移**（18 个页面，含数据库工具与素材库治理），见 `app/admin/README.md`；仍未实现的是 ffmpeg（旧站也没有）与进程内缓存（先不加）。
+11. **框架层状态码与旧站一致**：未知路由 = 真 HTTP 404（`{code:404,msg:"接口不存在"}`）、未捕获异常 = 真 HTTP 500、请求体 >5MB = 413、`/apitest` 关闭 = HTTP 404 + `code:404` + `接口已关闭`。**业务失败仍是 HTTP 200 + `body.code`**（这条是硬口径，别改）。
+12. **CORS**：`ALLOWED_ORIGINS` 默认 `*`（与迁移前一致，小程序不带 Origin 不受影响）；填域名后只回白名单内的 Origin，且不启用 `allow-credentials`（旧站也是 `False`）。
+13. **参数语义对齐**：`intOf` = 旧站 `intval`（`int(float(v))`、溢出夹 `±2^31`、非法回退）；`/news/list` 的 `page` 夹到 1000；`/content/get_notice_unread` 未登录回 **200 + `未登录` + 空数据**（旧站口径，不是 401）；请求体上限 5MB（旧站 `BODY_LIMIT_BYTES`），multipart 豁免。
+14. **R2 绑定名是 `STORAGE`**（`wrangler.toml` 的 `[[r2_buckets]].binding`）：代码只从 `core/config.js` 的 `storage` 取值，那里兼容早期的 `MEDIA`；改绑定名时只改 `wrangler.toml` 一个字段。
 
 ## 六、部署（你自己执行）
 

@@ -1,6 +1,8 @@
-// 上传与素材库: 旧站把文件写到本地磁盘, 这里写到 R2(桶 lyjxxapp-r2, 公开域 media.250036.xyz)
+// 上传与素材库: 旧站把文件写到本地磁盘, 这里写到 R2(桶 lyjxxapp-r2, 公开域 storage.250036.xyz)
 // 关键差异: Workers 没有 Pillow, 上传时**不生成缩略图** —— 列表按"有则用、无则回退原图"的口径自动降级
 // 白名单与大小上限照旧站 core/storage.py: 图片 8MB / 视频 64MB, 并且**不看扩展名只看内容**(前端 accept 可绕过)
+import { settings } from '../../core/config.js';
+
 export const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
 export const VIDEO_EXTS = ['mp4', 'mov', 'm4v', 'webm'];
 export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -87,7 +89,7 @@ export async function saveUpload(env, options) {
   const name = `${prefix}_${Date.now()}.${ext}`;
   const key = `${NEWS_PREFIX}${name}`;
   try {
-    await env.MEDIA.put(key, bytes, {
+    await settings(env).storage.put(key, bytes, {
       httpMetadata: { contentType: file.type || (isVideoPurpose ? 'video/mp4' : 'image/jpeg') }
     });
   } catch (error) {
@@ -104,7 +106,7 @@ export async function listMedia(env, kind, query) {
   const keyword = String(query || '').trim().toLowerCase();
   let objects = [];
   try {
-    const listed = await env.MEDIA.list({ prefix: NEWS_PREFIX, limit: 1000 });
+    const listed = await settings(env).storage.list({ prefix: NEWS_PREFIX, limit: 1000 });
     objects = (listed && listed.objects) || [];
   } catch (error) {
     console.error('列举素材失败', error && error.message);
@@ -147,7 +149,7 @@ export async function thumbUrlOf(env, item) {
   const key = thumbKeyOf(item.path);
   if (!key) return '';
   try {
-    const found = await env.MEDIA.head(key);
+    const found = await settings(env).storage.head(key);
     return found ? key : '';
   } catch (error) {
     return '';

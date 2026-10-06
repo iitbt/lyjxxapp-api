@@ -2,7 +2,7 @@
 out/
 node_modules/
 .wrangler/
-
+notes/
 # 密钥: 只提交 .example 模板, 真值文件不入库
 .secrets.json
 .dev.vars
