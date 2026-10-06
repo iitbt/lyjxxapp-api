@@ -1,8 +1,14 @@
 // 后台页面外壳: 结构照搬旧站 base.html(同样的 class 名与分组层级), 因此旧站 admin.css 能直接复用
 // 脚本引用顺序不能乱: ① head 里同步引 sidebar-groups.js(首帧就要恢复分组展开态);
-// ② 侧栏标记之后 inline 调 restore; ③ body 末尾同步引 admin-shell.js(DOM 已就绪, 抽屉才绑得上)
+// ② 侧栏标记之后 inline 调 restore; ③ body 末尾同步引 admin-shell.js(DOM 已就绪, 抽屉才绑得上);
+// ④ 上传与素材库脚本也在本文件统一引(defer) —— 见 MODAL_SCRIPTS 的说明
 import { FAVICON_LINK, escapeHtml } from '../../core/html.js';
 import { NAV_GROUPS } from './nav.js';
+
+//: 弹窗类脚本: partials.js 只渲染弹窗的 HTML, **不带 script 标签**(旧站是 _image_upload_field.html /
+//: _media_library_modal.html 各自引), 所以由外壳统一加载 —— 少一处就会"点上传没反应、素材库弹窗空白"。
+//: 两个脚本都自带幂等守卫, 页面上没有对应弹窗时纯空转, 因此全站统一引比各页自己引更不容易漏
+const MODAL_SCRIPTS = ['image_upload.js', 'media_library.js'];
 
 // 仅本 Worker 需要的几行样式(旧 CSS 里没有"待迁"标记与统计卡片)
 const EXTRA_STYLE = [
@@ -114,6 +120,7 @@ ${FAVICON_LINK}
 <script src="/admin/static/vendor/bootstrap.bundle.min.js?v=${version}"></script>
 <script src="/admin/static/js/admin-shell.js?v=${version}"></script>
 <script src="/admin/static/js/status-toggle.js?v=${version}" defer></script>
+${MODAL_SCRIPTS.map((name) => `<script src="/admin/static/js/${name}?v=${version}" defer></script>`).join('\n')}
 ${options.scripts || ''}
 </body>
 </html>`;

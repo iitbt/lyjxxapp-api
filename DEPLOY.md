@@ -2,7 +2,7 @@
 
 > 项目：`app/api-cf/`（Workers + D1 + R2，**只有对外 API，没有管理后台**）。
 > 迁移设计见 `Plan.md`，接口台账见 `notes/api-inventory.md`，限流方案见 `notes/limits-design.md`，运营改数见 `notes/ops-sql.md`，本地跑法见 `README.md`。
-> 代码与自测已完成（33 条接口、163 条用例全绿），本文件只讲"怎么推上云"。部署动作全部由你执行。
+> 代码与自测已完成（33 条接口、175 条用例全绿），本文件只讲"怎么推上云"。部署动作全部由你执行。
 
 ## 0. 命名约定（固定，不要改）
 
@@ -310,7 +310,7 @@ npm run secrets:put
 
 ### B7. 本地自检（部署前）
 ```powershell
-npm test          # 163 条用例, 应全绿(不需要账号与网络)
+npm test          # 175 条用例, 应全绿(不需要账号与网络)
 npm run dev       # 本地起服务 http://127.0.0.1:8787, 先看 / 与 /health/ready
 ```
 
@@ -388,8 +388,35 @@ jobs:
 - **列举/引用判定同时覆盖新目录与历史目录**（`MEDIA_PREFIXES`）：素材库弹窗、素材占用统计、素材治理页的"是否被引用"都把两个目录算进来，所以老素材不会"消失"，新素材也不会被误判成未引用。
 - **Worker 直出同时覆盖新旧路径**（`SERVED_PREFIXES`）：`/image/*`、`/video/*`、`/avatar/*`、`/news_uploads/*`、`/avatar_uploads/*`、`/images/*`，都带 `etag` + `cache-control` + `accept-ranges`（Range 回 206）。
 - **数据库里存的是相对路径，一个字段都不用改**：历史值（`news_uploads/…`）继续有效，新值（`image/…`）由 `MEDIA_BASE` 拼绝对地址下发。**不需要迁移数据、也不需要搬动 R2 对象**。
-- **缩略图目录随原图走**：`image/a.png` → `image/_thumb/480/a.webp`，历史 `news_uploads/a.png` → `news_uploads/_thumb/480/a.webp`。Cloudflare 侧**只读不生成**（无 Pillow）：缩略图由离线工具产出（`fastapi/tools/make_cover_thumbs.py`），缺失时列表与小程序自动回退原图。
-  > ⚠️ **待确认/需同步**：该离线工具的缩略图路径规则在旧站 `fastapi/app/core/storage.py::ensure_news_cover_thumb` 里，若要给 `image/` 下的新素材生成缩略图，需要把那份规则改成"目录随原图走"（与 `core/storage.js` 的 `thumbKeyOf` 一致），否则新素材不会命中缩略图（只是回退原图，不影响功能）。
+
+### 缩略图（规则：目录随原图走）
+
+一条规则、一处真值：`app/core/storage.js::thumbKeyOf`（后台弹窗与对外接口都复用它）。
+
+| 原图 | 缩略图（480 / 800 两个宽度） |
+|---|---|
+| `image/a.png` | `image/_thumb/480/a.webp`、`image/_thumb/800/a.webp` |
+| `image/home/deep.png`（有子目录） | `image/_thumb/480/deep.webp` —— 子目录**扁平**到素材目录下的 `_thumb/<宽>/`，与历史 `news_uploads/home/*` 的排布一致 |
+| `news_uploads/home/a.jpg`（历史素材） | `news_uploads/_thumb/480/a.webp` —— **历史缩略图继续命中**：老对象一个都不用重生成、不用搬 |
+| `video/x.mp4` | `video/_thumb/480/x.webp`（不会有人生成；探不到就回退原图） |
+| `avatar/…`、`avatar_uploads/…`、外链 `https://…` | 不派生（`thumbKeyOf` 返回空 → 不下发 `image_thumb`） |
+
+影响与结论（本次**未搬运/未批量处理**任何对象，只改了规则与说明）：
+
+- **历史缩略图仍可访问、不需要重生成**：规则对 `news_uploads/…` 同样成立，历史对象 key 没变、页面照旧引用。
+- **新目录的缩略图要补（可选，不补不影响功能）**：Cloudflare 侧只读不生成（无 Pillow），要离线产出后按 key 上传。先算清缺哪些：
+
+  ```powershell
+  wrangler r2 object list lyjxxapp-r2 --prefix=image > $env:TEMP\orig.txt
+  wrangler r2 object list lyjxxapp-r2 --prefix=image/_thumb > $env:TEMP\have.txt
+  node tools/thumb_plan.mjs --check $env:TEMP\have.txt $env:TEMP\orig.txt   # 逐条标"有/缺", 有缺时退出码 1
+  ```
+
+  `tools/thumb_plan.mjs` 就是按上表规则算出 `原图 → 缩略图 key`（`--widths 480` 可只算一个宽度）。生成出 webp 后按列出的 key 上传，例如
+  `wrangler r2 object put lyjxxapp-r2/image/_thumb/480/<名>.webp --file=<本地 webp>`。
+- **缺失时的回退**：探不到缩略图就**不下发** `image_thumb` 键（`app/core/media_scheme.js::existingThumbs`）→ 小程序与后台列表回退原图，只是流量大一些，不白图、不报错。
+- **宽度**：Cloudflare 侧只读 `480`（`NEWS_COVER_THUMB_WIDTH`，封面/列表用）；`800` 只有旧站预览页用（`fastapi/app/admin/render.py`），`thumb_plan.mjs` 默认把两个都列出来。
+- ⚠️ **与旧站的差异（本次不改 `fastapi/` 任何代码）**：旧站 `app/core/storage.py::ensure_news_cover_thumb` 与 `tools/make_cover_thumbs.py` 仍把缩略图写死到 `news_uploads/_thumb/<宽>/`。所以**用旧站工具跑新目录（`image/`）的素材，产出会落到 `news_uploads/_thumb/` 下、与新规则不匹配**（表现是"依旧回退原图"，不影响功能）。要让旧站工具也按"目录随原图走"产出，需改旧站那份规则并重跑 —— **待确认**（改不改、何时改；本次范围内不动它）。
 - **上传接口的字段与口径**：`file`（或历史名 `image`）+ `purpose`（`cover` / `content` / `video`），图片 8MB、视频 64MB，并按**文件头**判类型（改扩展名蒙不过去）。
 
 ---
@@ -458,6 +485,10 @@ curl.exe -s https://lyjx.250036.xyz/admin/login | Select-String 'rel="icon"'
 | `GET /image/<新上传的图>`、`GET /video/<新上传的视频>`、`GET /avatar/<头像>` | 同上；历史路径 `/news_uploads/...`、`/avatar_uploads/...` 同样能直出（带 `Range: bytes=0-1023` 时回 **206** + `content-range`，视频拖动/续播靠它） |
 | `GET /image/<不存在的对象>` | **404**；R2 绑定名写错时是 **502**（说明 `wrangler.toml` 与桶没对上） |
 | 后台「本地上传」选一张图/一段视频 → 点上传 | 进度条走完并提示 `上传成功: image/xxx.png`（视频为 `video/xxx.mp4`），字段被回填；素材库弹窗里能立刻看到它（带目录徽章） |
+| 后台笔记编辑页点「图片素材库」/「视频素材库」 | 弹窗按类型列出来自 R2 的素材（每行带目录徽章 `image`/`news_uploads`，图片优先显示缩略图，没有则回退原图），点一行即把相对路径回填到对应字段 |
+| 后台笔记编辑页的 HTML 里 | 必须能看到 `/admin/static/js/image_upload.js?v=` 与 `/admin/static/js/media_library.js?v=`（这两个脚本由外壳统一引，见下表"点上传没反应"） |
+| `node tools/thumb_plan.mjs --check <已有清单> <原图清单>` | 逐条标 `有`/`缺`；有缺失时退出码 **1**（原图 → 期望缩略图 key 的映射见「素材目录」节的缩略图表） |
+| 笔记列表（带 `page`）里某条有缩略图 | 该条带 `image_thumb` 且指向 `<素材目录>_thumb/480/<名>.webp`；没有就**没有这个键**（不是空串） |
 | `GET /?format=json` | `{"name":"狼牙极限运动笔记API","description":"本服务为…数据服务。","status":"运行中","server_time"}`（name/description/status 三值与旧站逐字一致） |
 | `GET /health` | **裸结构**（无 code 包装）`{"status":"ok","service":"狼牙极限运动笔记API","uptime_s":0,"server_time",checks:{database,media}}` |
 | `GET /health/ready` | **裸结构**（无 code 包装）`{"status":"ready",version,server_time,checks}`；D1 或 R2 不通时 **503** 且 `status:"starting"` |
@@ -506,7 +537,8 @@ curl.exe -s https://lyjx.250036.xyz/admin/login | Select-String 'rel="icon"'
 | 图标不显示，但 `curl -I /favicon.ico` 是 200 | 浏览器按**站点**记着旧的"没有图标"（本站此前 404 过；浏览器不因服务端变好就重取） | 本版页面引用已带 `?v=<指纹>`，重开页面即生效；仍不显示看「站点图标」节的四步（强刷 / 关标签页 / 清站点数据 / 隐身窗口） |
 | 点「上传」没反应（页面刷新或什么都不发生） | 上传表单靠 `static/js/image_upload.js` 认领并改走 XHR；该脚本是**生成物里的一份**，只改源文件不重跑 `tools/embed_admin_assets.mjs` 就不会生效 | 重跑 `node tools/embed_admin_assets.mjs` 并升 `main.js` 的 `API_VERSION` 后重新部署 |
 | 素材库弹窗里看不到刚上传的图 | 列举只认 `image/`、`video/` 与历史 `news_uploads/`；若 R2 里对象被放到别的目录（例如手工 `r2 object put` 时写错前缀）就不会出现 | 按 `库内相对路径 = R2 key` 重传；目录清单见「素材目录」节 |
-| 素材库/编辑页里的缩略图不显示 | 缩略图要离线生成（Cloudflare 侧不生成），且新目录（`image/`）的缩略图规则需与 `core/storage.js` 的 `thumbKeyOf` 一致 | 按「素材目录」节的说明跑离线工具；没有缩略图只是回退原图，不影响功能 |
+| 素材库/编辑页里的缩略图不显示 | 缩略图离线生成（Cloudflare 侧不生成），且 key 必须落在"目录随原图走"的位置：`image/` 的原图要放 `image/_thumb/480/…`，放成 `news_uploads/_thumb/…` 不会被命中 | 用 `node tools/thumb_plan.mjs --check …` 列出缺的 key 并按它上传（见「素材目录」节的缩略图段）；没有缩略图只是回退原图，不影响功能 |
+| 编辑页（`news_edit` 等）点「本地上传」没反应；「图片/视频素材库」弹窗点开是空白 —— 而 `/admin/media_manage` 一切正常 | 上传与素材库这两块**由前端脚本驱动**（`image_upload.js` 认领表单并改走 XHR、`media_library.js` 拉列表并回填），而素材库管理页是**服务端直出**、不依赖脚本，所以只有编辑页会坏。这两个脚本由 `app/admin/lib/layout.js` 的 `MODAL_SCRIPTS` 统一引入（旧站是模板各自带 `<script>`，抽成 `partials.js` 时标签丢了→页面有弹窗有表单却没人处理 submit） | 打开编辑页看 HTML 里有没有 `/admin/static/js/image_upload.js?v=`、`/admin/static/js/media_library.js?v=`；改过 `app/admin/static/**` 必须 `node tools/embed_admin_assets.mjs` 并升 `API_VERSION` 后重新部署（`tests/admin_submit_action.test.mjs` 有"资源包不许有孤儿脚本"的检查拦这类回退） |
 | 后台"执行 SQL"一直提示"请输入要执行的 SQL" | 前端发的是 JSON，而入口只解析 urlencoded（2.1.6 已修） | 升级部署到 2.1.6+ |
 | 普通管理员能打开"管理员管理"或提交成功 | 该页原本只在页面内自查超管（2.1.6 起分发层也拦 `route_super`） | 升级部署到 2.1.6+；普通管理员会看到 403 |
 | `/admin/bootstrap` 说"已经初始化过" | `admin_users` 里已有账号 | 直接去 `/admin/login`；**忘了口令**就 `DELETE FROM admin_users;` 后重新 bootstrap（A8 有完整步骤） |

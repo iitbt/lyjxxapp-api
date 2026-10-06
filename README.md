@@ -22,8 +22,8 @@ app/                     全部业务代码, 与 fastapi/app/ 逐层对应
 │   ├── assets/          生成物: 旧站 CSS/JS 的文本模块(Worker 与 Node 都能 import)
 │   └── static/          旧站静态原件(生成来源与对照)
 └── sql/                 D1 建表脚本(0001 业务表 / 0002 限流 / 0003 微信 token / 0004 管理员)
-tools/                   导出、行数校验、对拍、真实数据冒烟、素材小抄
-tests/                   node --test 用例(142 条), 用函数桩模拟 D1/R2, 不联网
+tools/                   导出、行数校验、对拍、真实数据冒烟、素材小抄、缩略图 key 计划
+tests/                   node --test 用例(175 条), 用函数桩模拟 D1/R2, 不联网
 ```
 
 > 改代码时的边界：**对外口径改 `app/api/` + `app/core/`，后台改 `app/admin/`**；`app/admin/` 只通过 `/admin` 前缀对外，不进 33 条路由表。
@@ -75,7 +75,7 @@ npm run deploy
 ```bash
 npm run schema:local   # 本地 SQLite 建表(0001+0002+0003 中的前两个 + 0003 按需)
 npm run dev            # wrangler dev --local, 默认 http://127.0.0.1:8787
-npm test               # node --test, 169 条用例, 不需要网络与云账号
+npm test               # node --test, 175 条用例, 不需要网络与云账号
 ```
 
 手工验收（`wrangler dev` 起来后，把 33 条逐条打一遍；`/news/list` 要同时试带 `page` 与不带 `page`）：
@@ -134,7 +134,7 @@ node tools/diff_api.mjs --old https://api0.250036.xyz --new http://127.0.0.1:878
 5. **`/health` 的 `uptime_s` 固定 0**（Worker 没有进程概念）；`/health/ready` 返回裸结构，未就绪 503；`checks` 字段是 `database/media`（旧站是 `serving_cache/cache_backend`，Worker 无缓存概念）。
 6. **`/metrics`** 仅在 `OBSERVABILITY_ENABLED=1` 时输出最小 Prometheus 文本（指标集比旧站小）。
 7. **`/pages/download`** 是本次新增页面（旧站没有），文案可用 `app_texts` 的 `download.tip` 覆盖。
-8. **素材目录分新老两套**：新上传按类型落 `image/`（图片）、`video/`（视频）、`avatar/`（小程序头像）；历史素材仍在 `news_uploads/`、`avatar_uploads/`。列举、引用判定与 Worker 直出**同时覆盖两套**（真值在 `app/core/storage.js` 的 `MEDIA_PREFIXES` / `SERVED_PREFIXES`），数据库里的相对路径一个都不用改、R2 对象也不用搬。缩略图目录随原图走（`image/a.png` → `image/_thumb/480/a.webp`），Cloudflare 侧只读不生成，缺失就回退原图。
+8. **素材目录分新老两套**：新上传按类型落 `image/`（图片）、`video/`（视频）、`avatar/`（小程序头像）；历史素材仍在 `news_uploads/`、`avatar_uploads/`。列举、引用判定与 Worker 直出**同时覆盖两套**（真值在 `app/core/storage.js` 的 `MEDIA_PREFIXES` / `SERVED_PREFIXES`），数据库里的相对路径一个都不用改、R2 对象也不用搬。**缩略图规则 = 目录随原图走**（`image/a.png` → `image/_thumb/480/a.webp`，子目录扁平到 `_thumb/<宽>/`；历史 `news_uploads/a.png` → `news_uploads/_thumb/480/a.webp`，所以历史缩略图照旧命中、不用重生成）。Cloudflare 侧**只读不生成**：探不到就不下发 `image_thumb`、回退原图；新目录要补缩略图时用 `tools/thumb_plan.mjs` 算出期望 key（`--check` 报缺哪些），生成与上传由离线侧执行。旧站工具（`fastapi/app/core/storage.py::ensure_news_cover_thumb`）仍写死 `news_uploads/_thumb/`，**本次未改旧站代码**，差异见 `DEPLOY.md`「素材目录」节。
 9. **`/images/*`、`/image/*`、`/video/*`、`/avatar/*`、`/news_uploads/*`、`/avatar_uploads/*` 都由 Worker 从 R2 直出**（旧站是 `StaticFiles` 挂载，同样支持 Range/206），所以 `app/images` 的 4 个文件必须上传，否则菜单图标会 404。
 10. **素材对外域名 `MEDIA_BASE` 可填两种**：① R2 公开域 `https://storage.250036.xyz`（**推荐**，不经 Worker，不吃请求额度）；② Worker 域名 `https://lyjx.250036.xyz`（少维护一个域名，但每条图片/视频请求都算一次 Worker 请求）。换法只是改 `[vars]` 后重新部署，代码与数据都不用动。
 11. **管理功能**：**已全量迁移**（18 个页面，含数据库工具与素材库治理），见 `app/admin/README.md`；仍未实现的是 ffmpeg（旧站也没有）与进程内缓存（先不加）。
@@ -143,7 +143,8 @@ node tools/diff_api.mjs --old https://api0.250036.xyz --new http://127.0.0.1:878
 14. **参数语义对齐**：`intOf` = 旧站 `intval`（`int(float(v))`、溢出夹 `±2^31`、非法回退）；`/news/list` 的 `page` 夹到 1000；`/content/get_notice_unread` 未登录回 **200 + `未登录` + 空数据**（旧站口径，不是 401）；请求体上限 5MB（旧站 `BODY_LIMIT_BYTES`），multipart 豁免。
 15. **R2 绑定名是 `STORAGE`**（`wrangler.toml` 的 `[[r2_buckets]].binding`）：代码只从 `core/config.js` 的 `storage` 取值，那里兼容早期的 `MEDIA`；改绑定名时只改 `wrangler.toml` 一个字段。
 16. **站点图标按真实格式下发**：`app/favicon.ico` 实际是 800×800 的 **PNG**（前 8 字节 PNG 魔数），所以响应与页面 `type=` 都声明 `image/png`；页面引用统一带 `?v=<内容指纹>`（`core/favicon.js` 的 `FAVICON_HASH`）—— 浏览器按**站点**记"有没有图标"，不带指纹就换不掉内联之前 404 留下的旧结论。
-17. **`route_super` 类写路径现在有两道闸**：`app/admin/index.js` 分发前按 `entities.js` 的清单拦一道（原先只靠页面自查，管理员页漏了自查 → 任何登录账号都能增删管理员/重置口令），页面内仍可再自查。
+17. **弹窗类静态脚本由外壳统一引**：`image_upload.js`（弹窗里「上传」走 XHR + 回填字段）与 `media_library.js`（素材库弹窗拉列表 + 回填字段）在 `app/admin/lib/layout.js` 的 `MODAL_SCRIPTS` 里统一引入。旧站是 `_image_upload_field.html` / `_media_library_modal.html` **各自**带 `<script src>`，而 `partials.js` 只渲染弹窗的 HTML（不带标签）——漏引时的表现是"点上传整页刷新、素材库弹窗空白"，且**服务端直出的 `/admin/media_manage` 照常正常**（因为它不依赖脚本），很容易误判成后端问题。两个脚本都自带幂等守卫（`window.__imageUploadBound` / `window.__mediaLibraryBound`）；`tests/admin_submit_action.test.mjs` 里有一条"资源包里不许有孤儿脚本"的检查防止再漏。
+18. **`route_super` 类写路径现在有两道闸**：`app/admin/index.js` 分发前按 `entities.js` 的清单拦一道（原先只靠页面自查，管理员页漏了自查 → 任何登录账号都能增删管理员/重置口令），页面内仍可再自查。
 
 ## 六、部署（你自己执行）
 

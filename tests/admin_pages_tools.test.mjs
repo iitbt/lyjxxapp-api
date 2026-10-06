@@ -119,7 +119,9 @@ const MEDIA_OBJECTS = [
   { key: 'news_uploads/a.png', size: 1024, uploaded: '2026-10-01T00:00:00Z' },
   { key: 'news_uploads/b.mp4', size: 4096, uploaded: '2026-10-02T00:00:00Z' },
   { key: 'image/new.png', size: 8192, uploaded: '2026-10-06T00:00:00Z' },
-  { key: 'news_uploads/_thumb/480/a.webp', size: 128, uploaded: '2026-10-01T00:00:00Z' }
+  // 缩略图: 新目录与历史目录各一个(占用统计要把两处都算上)
+  { key: 'news_uploads/_thumb/480/a.webp', size: 128, uploaded: '2026-10-01T00:00:00Z' },
+  { key: 'image/_thumb/480/new.webp', size: 256, uploaded: '2026-10-06T00:00:00Z' }
 ];
 
 const mediaRows = {
@@ -146,8 +148,10 @@ test('素材库治理: 列出素材、标注被引用与未引用', async () => 
   assert.match(html, /素材库管理/);
   assert.ok(html.includes('a.png'));
   assert.ok(html.includes('b.mp4'));
-  // 派生缩略图不进清单(只计入占用), 屏上的清单里不应出现 _thumb
+  // 派生缩略图不进清单(只计入占用), 屏上的清单里不应出现 _thumb; 两个目录的缩略图都要算
   assert.ok(!html.includes('_thumb/480/a.webp'));
+  assert.ok(!html.includes('_thumb/480/new.webp'));
+  assert.ok(html.includes('派生缩略图 2 个'), '缩略图占用要同时统计新目录与历史目录');
   // a.png 被笔记引用 → 显示"1 处"; b.mp4 未引用
   assert.match(html, /1 处/);
   assert.match(html, /未引用/);

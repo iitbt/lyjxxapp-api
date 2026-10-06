@@ -55,6 +55,9 @@ test('缩略图路径: 目录随原图走(新目录与历史目录各一份规�
   assert.equal(thumbKey('avatar_uploads/a.png'), '', '头像不派生缩略图');
   assert.equal(thumbKey('avatar/a.png'), '', '头像不派生缩略图');
   assert.equal(thumbKey('https://x/y.png'), '', '外链不下发缩略图');
+  // 子目录跟着素材目录扁平化(与历史 news_uploads/_thumb/ 的排布一致), 缩略图本身不再派生
+  assert.equal(thumbKey('image/home/deep.png'), 'image/_thumb/480/deep.webp');
+  assert.equal(thumbKey('image/_thumb/480/a.webp'), 'image/_thumb/480/a.webp');
 });
 
 test('富文本净化: 去脚本/事件属性/危险协议, 保留白名单标签', () => {

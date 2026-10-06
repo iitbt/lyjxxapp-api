@@ -10,6 +10,7 @@
 - 新上传按类型落 `image/`（图片）、`video/`（视频）、`avatar/`（头像）；Worker 侧全部直出（含历史目录），见 `DEPLOY.md` 的「素材目录」节。
 - 三个历史前缀（`news_uploads/`、`avatar_uploads/`、`images/`）全部公开，走自定义域直读。
 - 派生文件（缩略图）**必须在旧环境预生成**：Workers 里没有 Pillow，无法在线生成。
+- 缩略图位置**目录随原图走**（`image/a.png` → `image/_thumb/480/a.webp`；历史 `news_uploads/…` 仍落 `news_uploads/_thumb/…`，照旧命中）：用 `node tools/thumb_plan.mjs --check <已有清单> <原图清单>` 先算出缺哪些 key，再按它上传；旧站工具目前写死 `news_uploads/_thumb/`，给新目录产出的位置**不匹配**（见 `DEPLOY.md`「素材目录」节，本次未改旧站代码）。
 
 ## 二、步骤
 

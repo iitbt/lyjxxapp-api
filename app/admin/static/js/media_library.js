@@ -14,6 +14,10 @@
 (function () {
   'use strict';
 
+  // 幂等守卫: 同一页面重复引入本脚本时只绑定一次(外壳统一引 + 页面若再引一份也不会重复插值)
+  if (window.__mediaLibraryBound) { return; }
+  window.__mediaLibraryBound = true;
+
   var mediaModal = document.getElementById('mediaLibraryModal');
   var mediaListEl = document.getElementById('mediaLibraryList');
   var mediaQueryEl = document.getElementById('mediaLibraryQuery');

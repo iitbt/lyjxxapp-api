@@ -109,14 +109,15 @@ DELETE FROM admin_users;   -- 清掉全部管理员(通常只有 1 个)
 | 素材库治理 | `os.walk` 扫本地目录 + 15 秒进程内扫描缓存 | **R2 列举**（无进程内缓存，每次真扫元信息）；占用统计分"原文件"与"派生缩略图"两栏 |
 | 素材删除 | `os.remove`（同样不可恢复） | R2 `delete`（无回收站）；同样"有引用一律拒绝 + 服务端确认页" |
 
-## 四·五、七处实现约定（改这里之前先读）
+## 四·五、八处实现约定（改这里之前先读）
 
 | 约定 | 为什么 | 改哪里 |
 |---|---|---|
 | **版本号只有一个来源**：`main.js` 的 `API_VERSION`；入口用 `handleAdmin(request, env, { version })` 注入，侧栏 `.ver` 与静态资源 `?v=` 都读它 | 版本号若各页自己读 env/配置，就会出现"首页正常、后台侧栏只显示一个 v"这种不一致（2026-10-06 的线上故障就是入口漏传参） | `main.js`（注入）；`lib/layout.js`（版本为空时**不渲染** `.ver`，宁可没有也不留裸 `v`） |
 | **表头要放真 HTML 必须显式声明**：`listShell` 的列支持 `{ label, html: true }`，其余一律转义 | 默认转义是安全底线；笔记列表的"全选"复选框曾因此被显示成 `&lt;input …&gt;` 源码文本 | `lib/partials.js` 的 `listShell`；调用方如 `pages/news.js` 的 `COLUMNS` |
-| **素材目录只认 `core/storage.js` 的常量**：新上传落 `image/`、`video/`、`avatar/`；列举/引用判定/直出都要覆盖历史目录 `news_uploads/`、`avatar_uploads/` | 目录散落在多处各写一份时，会出现"传上去但素材库里看不到""老素材被判成未引用而误删"这类静默事故（旧实现就是 `mediaUpload.js` 与 `core/storage.js` 各有一份 `news_uploads/`） | `app/core/storage.js`（`MEDIA_PREFIXES`/`SERVED_PREFIXES`/`thumbKeyOf`）；调用方只 import，不自己拼 |
+| **素材目录只认 `core/storage.js` 的常量**：新上传落 `image/`、`video/`、`avatar/`；列举/引用判定/直出都要覆盖历史目录 `news_uploads/`、`avatar_uploads/`；缩略图位置也由同一处的 `thumbKeyOf` 决定（**目录随原图走**，子目录扁平到 `<素材目录>_thumb/<宽>/`） | 目录散落在多处各写一份时，会出现"传上去但素材库里看不到""老素材被判成未引用而误删""缩略图放错目录永远探不到"这类静默事故（旧实现就是 `mediaUpload.js` 与 `core/storage.js` 各有一份 `news_uploads/`） | `app/core/storage.js`（`MEDIA_PREFIXES`/`SERVED_PREFIXES`/`thumbKeyOf`）；调用方只 import，不自己拼 |
 | **上传弹窗靠 `static/js/image_upload.js` 认领**：表单只写 `data-endpoint/data-purpose/data-kind/data-target/data-insert`，发请求的是那个脚本（capture 阶段监听 submit） | 这段绑定原先在旧站模板里，抽静态脚本时漏掉了 → 点「上传」变成整页提交，表现为"上传没反应/上传失败"（`tests/admin_submit_action.test.mjs` 会拦回退） | `app/admin/lib/partials.js`（渲染表单）；`static/js/image_upload.js`（绑定与回填） |
+| **弹窗类脚本由外壳统一引**：`image_upload.js`、`media_library.js` 在 `lib/layout.js` 的 `MODAL_SCRIPTS` 里引入；`partials.js` 只渲染弹窗 HTML，**不带** `<script>` | 旧站是 `_image_upload_field.html` / `_media_library_modal.html` 各自带 `<script src>`，抽成 `partials.js` 时标签丢了 → 页面有弹窗有表单却没人处理 submit/拉列表：**点「上传」变整页提交、素材库弹窗点开空白**；而服务端直出的 `/admin/media_manage` 不受影响，极易误判成后端问题（`tests/admin_submit_action.test.mjs` 有一条"资源包不许有孤儿脚本"的检查） | `lib/layout.js`（`MODAL_SCRIPTS`）；两个脚本各自带幂等守卫（`__imageUploadBound` / `__mediaLibraryBound`） |
 | **超管专属入口要有第二道闸**：`entities.js` 的 `SUPER_ONLY_WRITE_PATHS` 与 `ROUTE_SUPER_ONLY_WRITE_PATHS` 都在分发前拦；页面内自查只是补强 | `ROUTE_SUPER_ONLY` 原本约定"页面自己判"，而管理员页漏了判 → 任何登录账号都能 POST 增删管理员/重置口令（2.1.6 修）。写路径清单是唯一权威，页面自查不能替代它 | `app/admin/index.js`（分发前的 403）；`lib/entities.js`（清单）；`pages/adminUsers.js`（整页仅超管） |
 | **超管标识与登录名一律从 `ctx.session` 派生**：`adminLayout` 同时接受显式 `isSuper` 与摊开的 `ctx.session`（`session.isSuper`），顶栏用户名同理 | 页面里两种调用风格并存（`{ isSuper: ctx.session.isSuper, … }` 与 `Object.assign({}, ctx, …)`），只认显式那一种时，超管专属菜单会在"只摊 ctx"的页面（控制面板、错误页、工具页自身）整体消失 —— 表现为"有时看不到" | `lib/layout.js` 的 `adminLayout`；新增页面两种风格都能用（自检见 `tests/admin_sidebar_menus.test.mjs`） |
 | **动作字段一律用隐藏域**：`<input type="hidden" name="action" value="restore_user">` 或 `name="delete_admin" value="1"`，**不要**把动作挂在提交按钮的 `name/value` 上 | 表单数据是在 submit 事件**走完之后**才构造的，"提交时被禁用/被脚本锁定的按钮"不进表单数据 → 那个字段整条丢失 → 后端只回"未识别的操作"（2026-10-06 线上：用户管理两个按钮只发出 `user_id`/`page`，真实 Chromium 实测复现）。同理 `admin-shell.js` 锁按钮**只能**用 `aria-disabled` + `pointer-events`，绝不能设 `btn.disabled = true`（`tests/admin_submit_action.test.mjs` 会拦回退） | `lib/partials.js` 之外的各页表单；`static/js/admin-shell.js` 的 `lockButton` |
@@ -148,8 +149,9 @@ node tools\embed_admin_assets.mjs
 
 ## 六、本地怎么测
 
-- `cd app/api-cf && node --test`：**172 条**用例，覆盖三件套(权限归类/工厂/工具)、外壳(守卫/状态切换/宏/版本号注入/动作字段防回退/侧栏超管菜单/route_super 双闸/JSON 体解析/上传表单绑定)、素材目录(新旧目录列举与引用)/各页图标)、媒体直出与 R2 绑定名、
+- `cd app/api-cf && node --test`：**175 条**用例，覆盖三件套(权限归类/工厂/工具)、外壳(守卫/状态切换/宏/版本号注入/动作字段防回退/侧栏超管菜单/route_super 双闸/JSON 体解析/上传表单绑定/弹窗脚本引用与孤儿脚本检查)、素材目录(新旧目录列举、引用判定、缩略图目录随原图走、缩略图占用统计)/各页图标)、媒体直出与 R2 绑定名、
   全部页面模块的端到端（列表/片段/编辑/删除/上传/预览）、数据库工具与素材治理两页的闸门与判定、对外接口的契约定档。
 - `node tools/live_smoke.mjs`：真实库结构与数据下的对外接口端到端（后台改动不该影响它）。
+- `node tools/thumb_plan.mjs [原图清单] [--check 已有对象清单] [--widths 480,800]`：按"目录随原图走"算出每个原图期望的缩略图 key；`--check` 逐条标 `有/缺`（缺了退出码 1）。素材库/编辑页的缩略图不显示时用它定位。
 - 浏览器实测：可以用内存桩起一个本地预览服务（把 `handleAdmin` 接到 `http.createServer`），
   用 playwright 逐页看渲染与响应式 —— 注意会话 Cookie 的 `Secure` 只在 https 下发，所以 http 预览也能正常登录。

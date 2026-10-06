@@ -230,6 +230,31 @@ test('笔记列表: 不带 page 没有 msg 键; 带 page 有 total 与 has_more'
   assert.equal(paged.data.has_more, true);
 });
 
+test('笔记列表缩略图: 目录随原图走(新目录命中; 没有就不下发该键)', async () => {
+  const rows = [
+    Object.assign({}, noteRow, { id: 5, image: 'image/a.png' }),
+    Object.assign({}, noteRow, { id: 6, image: 'news_uploads/home/b.jpg' })
+  ];
+  const asked = [];
+  const { env } = makeEnv({
+    db: (sql) => {
+      if (/FROM users WHERE token=/i.test(sql)) return USER_ROW;
+      if (/FROM app_categories/i.test(sql)) return { all: [{ category_key: 'outdoor' }] };
+      if (/COUNT\(\*\) AS c FROM news/i.test(sql)) return { c: 2 };
+      if (/FROM news WHERE/i.test(sql)) return { all: rows };
+      if (/SELECT news_id FROM news_likes/i.test(sql)) return { all: [{ news_id: 5 }] };
+      return null;
+    },
+    media: { head: (key) => { asked.push(key); return key === 'image/_thumb/480/a.webp' ? { key } : null; } }
+  });
+  // 分页分支才做缩略图探测(与改前一致: 无 page 的首屏批次不下发 image_thumb)
+  const data = await getJson('/news/list?token=tok-1&page=1&page_size=10', env);
+  // 有没有缩略图都只探这一个 key(新目录跟着原图走, 老素材仍探历史目录)
+  assert.deepEqual(asked, ['image/_thumb/480/a.webp', 'news_uploads/_thumb/480/b.webp']);
+  assert.equal(data.data.list[0].image_thumb, 'https://media.test/image/_thumb/480/a.webp');
+  assert.ok(!('image_thumb' in data.data.list[1]), '没有缩略图就不下发该键, 小程序回退原图');
+});
+
 test('笔记详情: 400/404 文案与 is_admin 三种情况', async () => {
   const { env } = makeEnv({ db: () => null });
   assert.equal((await getJson('/news/detail', env)).msg, '参数错误');

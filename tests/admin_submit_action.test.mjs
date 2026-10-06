@@ -62,6 +62,42 @@ test('上传弹窗: 静态脚本必须自己绑 [data-image-upload](漏了就是
   assert.ok(uploader.includes('MediaInsertFromUpload'), '正文用法要交给页面提供的插入回调');
 });
 
+test('编辑页: 必须引到上传与素材库脚本(漏引 = 点上传没反应、素材库弹窗空白)', async () => {
+  const row = {
+    id: 5, title: '标题', desc: '简介', image: 'news_uploads/home/a.jpg', video_url: '',
+    category: 'outdoor', type: 'users', status: 'approved', publish_time: '2026-10-01 10:00:00',
+    activity_time: '', view_count: 3, likes: 1, favorites: 0, shares: 0, user_id: 7
+  };
+  const { env } = makeAdminEnv({
+    role: 'super',
+    rows: { news: [row], app_categories: [{ category_key: 'outdoor', name: '户外' }] },
+    counts: { news: 1 }
+  });
+  const cookie = await loginCookie(env);
+  const html = await (await get('/admin/news_edit?id=5', env, cookie)).text();
+  // 页面确实有这两个弹窗(不是"页面没用所以没引"): partials.js 只渲染 HTML, script 标签由外壳统一加
+  assert.ok(html.includes('data-image-upload'), '上传弹窗表单');
+  assert.ok(html.includes('id="mediaLibraryModal"'), '素材库弹窗');
+  for (const name of ['image_upload.js', 'media_library.js']) {
+    assert.ok(html.includes(`/admin/static/js/${name}?v=`), `${name} 必须被引入, 否则弹窗点了没反应`);
+  }
+});
+
+test('静态脚本不许有孤儿: 资源包里的每个 js 都要被页面或外壳引用', async () => {
+  const { readdir, readFile } = await import('node:fs/promises');
+  const assets = (await import('../app/admin/assets/static-assets.js')).default;
+  const files = (await readdir(new URL('../app/admin', import.meta.url), { recursive: true }))
+    .filter((name) => name.endsWith('.js') && !name.includes('assets'));
+  const text = (await Promise.all(files.map((name) => (
+    readFile(new URL(`../app/admin/${name}`, import.meta.url), 'utf8')
+  )))).join('\n');
+  for (const key of Object.keys(assets).filter((name) => name.startsWith('js/'))) {
+    const name = key.slice(key.lastIndexOf('/') + 1);   // 引用处写的是文件名(前缀由布局拼)
+    assert.ok(text.includes(name), `${key} 没有任何地方引用: 抽静态脚本时最容易漏的就是 script 标签`);
+  }
+  assert.ok(text.includes('MODAL_SCRIPTS'), '弹窗脚本由 lib/layout.js 统一引');
+});
+
 test('素材库弹窗: 目录清单由模板下发(前端不自己写死 news_uploads/)', async () => {
   const { mediaLibraryModal } = await import('../app/admin/lib/partials.js');
   assert.ok(mediaLibraryModal().includes('data-media-prefixes="image/,video/,news_uploads/"'),

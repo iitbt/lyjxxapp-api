@@ -33,7 +33,7 @@ export function mediaPrefixOf(relativePath) {
   return MEDIA_PREFIXES.find((prefix) => text.startsWith(prefix)) || '';
 }
 
-/** 缩略图 key: 目录随原图走 —— <素材目录>_thumb/<宽度>/<文件名>.webp(Cloudflare 侧只读, 不生成)。 */
+/** 缩略图 key: 目录随原图走 —— <素材目录>_thumb/<宽度>/<文件名>.webp(子目录扁平化, 头像/外链不派生, 已是缩略图则原样返回)。 */
 export function thumbKeyOf(relativePath, width = 480) {
   const text = String(relativePath || '').replace(/^\/+/, '');
   if (text.includes('/_thumb/')) return text;
