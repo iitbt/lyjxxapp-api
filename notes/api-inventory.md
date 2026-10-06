@@ -88,7 +88,6 @@
 | --- | --- | --- | --- |
 | 概览 | `/admin/dashboard` | —— | 登录即可 |
 | 用户 | `/admin/users`、`/admin/users_rows`、`/admin/user_detail` | `POST /admin/users`（设/取消内部测试、恢复账号、彻底删除） | **仅超管** |
-| 用户笔记 | `/admin/user_news_manage`、`/admin/user_news_rows` | `POST /admin/user_news_manage`（通过/驳回/移入回收站） | **仅超管** |
 | 管理员 | `/admin/admin_users`、`/admin/admin_users_rows` | `POST /admin/admin_users`（新增/删除/重置口令） | **仅超管** |
 | 笔记 | `/admin/news_manage`、`news_manage_rows`、`news_preview`、`news_edit`、`news_recycle` | `news_edit`（发布/编辑）、`news_copy`、`news_batch_action`、`news_restore` | 复制/批量 **仅超管** |
 | | 同上 | `news_delete`（软删除）、`news_purge`（彻底删） | **仅超管** |

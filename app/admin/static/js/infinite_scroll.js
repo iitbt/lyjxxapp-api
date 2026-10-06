@@ -6,8 +6,7 @@
  *
  * 演进:
  *   2026-09-19(优化建议 七.2): 以前触发逻辑与工具栏在 7 个列表模板里逐字
- *     复制(news_manage / banner_manage / admin_users / users / comments_manage /
- *     user_news_manage / topic_manage), 改一处要改七处 —— 收编为 AdminInfiniteScroll
+ *     复制, 改一处要改七处 —— 收编为 AdminInfiniteScroll
  *     与 AdminPagerBar, 各模板只保留"本页特有"的部分。
  *   2026-09-20(B1/B2/B3/B4): 再把 8 份逐字复制的 loadNextXxxPage() /
  *     syncXxxPageFields() / renderXxxLoadedHint() 收编成 AdminListLoader ——

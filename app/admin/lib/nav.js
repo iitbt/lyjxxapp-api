@@ -13,7 +13,6 @@ export const NAV_GROUPS = [
     title: '用户与审核',
     items: [
       { key: 'users', title: '用户管理', href: '/admin/users', icon: 'bi-people', status: 'ready' },
-      { key: 'user_news_manage', title: '用户笔记审核', href: '/admin/user_news_manage', icon: 'bi-check2-square', status: 'ready' },
       { key: 'admin_users', title: '管理员管理', href: '/admin/admin_users', icon: 'bi-person-gear', superOnly: true, status: 'ready' }
     ]
   },

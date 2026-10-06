@@ -205,8 +205,7 @@ async function detailPage(ctx) {
     </div>
   </div>
   <div class="row g-3">
-    <div class="col-md-4"><div class="card-stat"><div class="num">${tally.news || 0}</div><div class="lbl">发布笔记</div>
-      <a class="small" href="/admin/user_news_manage?status=all&amp;user_id=${user.id}">查看</a></div></div>
+    <div class="col-md-4"><div class="card-stat"><div class="num">${tally.news || 0}</div><div class="lbl">发布笔记</div></div></div>
     <div class="col-md-4"><div class="card-stat"><div class="num">${tally.comments || 0}</div><div class="lbl">发表留言</div>
       <a class="small" href="/admin/comments_manage?user_id=${user.id}">查看</a></div></div>
     <div class="col-md-4"><div class="card-stat"><div class="num">${tally.likes || 0}</div><div class="lbl">点赞次数</div></div></div>

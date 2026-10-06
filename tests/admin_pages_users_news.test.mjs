@@ -1,4 +1,4 @@
-// 用户/管理员/用户笔记/留言/笔记/上传 端到端自检
+// 用户/管理员/留言/笔记/上传 端到端自检
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -101,19 +101,6 @@ test('管理员: 新增时两次口令不一致被拒', async () => {
     { add_admin: '1', username: 'newbie', password: 'password-1234', confirm_password: 'password-9999' }, env, cookie);
   assert.ok((await res.text()).includes('两次输入的密码不一致'));
   assert.equal(findCall(state, /INSERT INTO admin_users/i), null);
-});
-
-test('用户笔记审核: 状态筛选 + JOIN 作者, 审核走统一状态接口', async () => {
-  const rows = [Object.assign({}, NEWS_ROW, { type: 'users', status: 'pending', user_id: 7, user_nickname: '老王' })];
-  const { env } = makeAdminEnv({
-    rows: { news: rows, app_categories: [{ category_key: 'outdoor', name: '户外' }] },
-    counts: { news: 1 }
-  });
-  const cookie = await loginCookie(env);
-  const html = await (await get('/admin/user_news_manage?status=pending', env, cookie)).text();
-  assert.ok(html.includes('老王'));
-  assert.ok(html.includes('户外'), '分类显示中文名');
-  assert.ok(html.includes('待审核'));
 });
 
 test('留言: 删除是物理删除且文案写明不可恢复', async () => {

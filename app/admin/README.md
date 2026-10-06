@@ -10,11 +10,11 @@
 app/admin/
 ├── index.js            # 入口: /admin 前缀分发 + 静态资源 + 写路径权限拦截
 ├── routes.js           # 控制面板(13 卡 + 趋势 + 最新列表)
-├── pages/              # 19 个页面模块, 每模块导出 { methods, path, handler } 的 routes 数组
+├── pages/              # 19 个页面模块(不含 index.js), 每模块导出 { methods, path, handler } 的 routes 数组
 │   ├── index.js        # 汇总成 PAGE_ROUTES 交给入口分发
 │   ├── banners.js notices.js categories.js appHome.js appFeatured.js
 │   ├── appVersion.js appText.js appMenu.js topics.js
-│   ├── users.js adminUsers.js userNews.js news.js comments.js
+│   ├── users.js adminUsers.js news.js comments.js
 │   ├── settings.js systemInfo.js media.js(上传与素材库弹窗)
 │   ├── dbTools.js      # 数据库工具 / 数据库管理(表浏览 + SQL 执行, ENABLE_SQL_TOOL 开关)
 │   ├── mediaGovern.js  # 素材库治理(占用 / 引用 / 删除, 仅超管)
@@ -46,7 +46,7 @@ app/admin/
 
 | 分类 | 页面 | 说明 |
 |---|---|---|
-| **已迁移（19）** | 控制面板、用户管理、用户笔记审核、管理员管理、笔记管理（含编辑/预览/回收站/批量）、留言管理、分类管理、轮播图、通知公告、首页板块、首页精选、专题精选（摩旅/户外）、版本配置、运营文案、我的页菜单、管理员设置、系统信息、**数据库工具 / 数据库管理**、**素材库管理** | 与旧站同路由、同文案、同口径（平台差异见第四节） |
+| **已迁移（18）** | 控制面板、用户管理、管理员管理、笔记管理（含编辑/预览/回收站/批量）、留言管理、分类管理、轮播图、通知公告、首页板块、首页精选、专题精选（摩旅/户外）、版本配置、运营文案、我的页菜单、管理员设置、系统信息、**数据库工具 / 数据库管理**、**素材库管理** | 与旧站同路由、同文案、同口径（平台差异见第四节） |
 
 两页"超管工具位"的实现口径：
 
@@ -109,12 +109,13 @@ DELETE FROM admin_users;   -- 清掉全部管理员(通常只有 1 个)
 | 素材库治理 | `os.walk` 扫本地目录 + 15 秒进程内扫描缓存 | **R2 列举**（无进程内缓存，每次真扫元信息）；占用统计分"原文件"与"派生缩略图"两栏 |
 | 素材删除 | `os.remove`（同样不可恢复） | R2 `delete`（无回收站）；同样"有引用一律拒绝 + 服务端确认页" |
 
-## 四·五、四处实现约定（改这里之前先读）
+## 四·五、五处实现约定（改这里之前先读）
 
 | 约定 | 为什么 | 改哪里 |
 |---|---|---|
 | **版本号只有一个来源**：`main.js` 的 `API_VERSION`；入口用 `handleAdmin(request, env, { version })` 注入，侧栏 `.ver` 与静态资源 `?v=` 都读它 | 版本号若各页自己读 env/配置，就会出现"首页正常、后台侧栏只显示一个 v"这种不一致（2026-10-06 的线上故障就是入口漏传参） | `main.js`（注入）；`lib/layout.js`（版本为空时**不渲染** `.ver`，宁可没有也不留裸 `v`） |
 | **表头要放真 HTML 必须显式声明**：`listShell` 的列支持 `{ label, html: true }`，其余一律转义 | 默认转义是安全底线；笔记列表的"全选"复选框曾因此被显示成 `&lt;input …&gt;` 源码文本 | `lib/partials.js` 的 `listShell`；调用方如 `pages/news.js` 的 `COLUMNS` |
+| **超管标识与登录名一律从 `ctx.session` 派生**：`adminLayout` 同时接受显式 `isSuper` 与摊开的 `ctx.session`（`session.isSuper`），顶栏用户名同理 | 页面里两种调用风格并存（`{ isSuper: ctx.session.isSuper, … }` 与 `Object.assign({}, ctx, …)`），只认显式那一种时，超管专属菜单会在"只摊 ctx"的页面（控制面板、错误页、工具页自身）整体消失 —— 表现为"有时看不到" | `lib/layout.js` 的 `adminLayout`；新增页面两种风格都能用（自检见 `tests/admin_sidebar_menus.test.mjs`） |
 | **动作字段一律用隐藏域**：`<input type="hidden" name="action" value="restore_user">` 或 `name="delete_admin" value="1"`，**不要**把动作挂在提交按钮的 `name/value` 上 | 表单数据是在 submit 事件**走完之后**才构造的，"提交时被禁用/被脚本锁定的按钮"不进表单数据 → 那个字段整条丢失 → 后端只回"未识别的操作"（2026-10-06 线上：用户管理两个按钮只发出 `user_id`/`page`，真实 Chromium 实测复现）。同理 `admin-shell.js` 锁按钮**只能**用 `aria-disabled` + `pointer-events`，绝不能设 `btn.disabled = true`（`tests/admin_submit_action.test.mjs` 会拦回退） | `lib/partials.js` 之外的各页表单；`static/js/admin-shell.js` 的 `lockButton` |
 | **用户管理两个写操作的语义**（下表） | 它们直接对应小程序侧判定，改错会连带影响小程序 | `pages/users.js` 的 `writeSubmit` / `restoreUser` |
 
@@ -129,22 +130,22 @@ DELETE FROM admin_users;   -- 清掉全部管理员(通常只有 1 个)
 
 ## 五、样式与脚本怎么改
 
-原件在 `app/admin/static/`，Worker 读的是 `app/admin/assets/static-assets.js`（生成物）。改了原件后重新生成：
+原件在 `app/admin/static/`，Worker 读的是 `app/admin/assets/static-assets.js`（**生成物，别手改**）。改了原件后重新生成：
 
 ```powershell
 cd app\api-cf
-# 遍历 app/admin/static/**: css/js 用 [IO.File]::ReadAllText + ConvertTo-Json -Compress;
-# 字体(.woff/.woff2) 用 ToBase64String 包成 data: URL(serveStatic 会解码回二进制返回);
-# 最后拼成 export default { ... } 写进 app/admin/assets/static-assets.js
+node tools\embed_admin_assets.mjs
 ```
 
-> 别用 `Get-Content -Raw`：它会给字符串挂上 `PSPath`/`PSDrive` 等属性，`ConvertTo-Json` 会把整个对象序列化进去（踩过一次）。
+生成规则：`static/**` 全部资源转成 JS 文本模块；字体（`.woff/.woff2`）用 base64 包成 `data:` URL（`serveStatic` 解码后按二进制返回）；转义风格与旧生成物一致（`< > & '` 走 `\u00xx`），所以重生成只会改动真正变过的资源。
 
 改完记得改 `main.js` 的 `API_VERSION`（资源地址带 `?v=`，不升版本号浏览器会用旧缓存）。
 
+> 关键提醒：**页面模块（`pages/*.js`）改完直接生效；`static/**` 改完必须重跑上面这条命令** —— 只改源文件不改生成物，线上拿到的还是旧脚本（"点了没反应 / 未识别的操作"这类现象就是漏了这一步）。
+
 ## 六、本地怎么测
 
-- `cd app/api-cf && node --test`：**156 条**用例，覆盖三件套(权限归类/工厂/工具)、外壳(守卫/状态切换/宏/版本号注入/动作字段防回退)、
+- `cd app/api-cf && node --test`：**159 条**用例，覆盖三件套(权限归类/工厂/工具)、外壳(守卫/状态切换/宏/版本号注入/动作字段防回退/侧栏超管菜单)、
   全部页面模块的端到端（列表/片段/编辑/删除/上传/预览）、数据库工具与素材治理两页的闸门与判定、对外接口的契约定档。
 - `node tools/live_smoke.mjs`：真实库结构与数据下的对外接口端到端（后台改动不该影响它）。
 - 浏览器实测：可以用内存桩起一个本地预览服务（把 `handleAdmin` 接到 `http.createServer`），

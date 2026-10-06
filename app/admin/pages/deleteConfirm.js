@@ -35,11 +35,6 @@ const SPECS = {
     label: '笔记', submit: '/admin/news_delete', back: '/admin/news_manage', page: 'news_manage',
     recoverable: true, passthrough: ['category', 'status', 'keyword', 'page']
   },
-  user_news_row: {
-    label: '用户笔记', submit: '/admin/user_news_manage', back: '/admin/user_news_manage',
-    page: 'user_news_manage', idField: 'news_id', fixed: { action: 'delete' },
-    recoverable: true, passthrough: ['status', 'user_id', 'page']
-  },
   news: { label: '笔记', submit: '/admin/news_purge', back: '/admin/news_recycle', page: 'news_recycle' },
   // 留言是**物理删除、没有回收站**, 措辞必须照实(与其它 kind 区分开)
   comment_row: {

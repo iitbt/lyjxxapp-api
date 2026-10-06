@@ -20,7 +20,6 @@ import { routes as noticeRoutes } from './notices.js';
 import { routes as settingsRoutes } from './settings.js';
 import { routes as systemInfoRoutes } from './systemInfo.js';
 import { routes as topicRoutes } from './topics.js';
-import { routes as userNewsRoutes } from './userNews.js';
 import { routes as userRoutes } from './users.js';
 
 export const PAGE_ROUTES = [
@@ -37,7 +36,6 @@ export const PAGE_ROUTES = [
   ...systemInfoRoutes,
   ...userRoutes,
   ...adminUsersRoutes,
-  ...userNewsRoutes,
   ...newsRoutes,
   ...commentRoutes,
   ...mediaRoutes,

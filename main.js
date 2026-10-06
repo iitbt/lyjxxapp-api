@@ -25,7 +25,7 @@ import { faviconResponse } from './app/core/favicon.js';
 // 版本号(**唯一来源**): 与旧站 fastapi/main.py 的 APP_VERSION 同一处 ——
 // 状态页 / /health/ready / /apitest 展示它, 后台静态资源的 ?v= 缓存键也用它。
 // 改版本只改这一行; wrangler.toml 里不再有 API_VERSION, 也不再有第二份默认值。
-export const API_VERSION = '2.1.3';
+export const API_VERSION = '2.1.4';
 
 // ==== 路由装配(对应旧站 main.py 的 include_router 段) ====
 const router = createRouter();

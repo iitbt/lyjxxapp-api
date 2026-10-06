@@ -132,7 +132,7 @@ node tools/diff_api.mjs --old https://api0.250036.xyz --new http://127.0.0.1:878
 6. **`/metrics`** 仅在 `OBSERVABILITY_ENABLED=1` 时输出最小 Prometheus 文本（指标集比旧站小）。
 7. **`/pages/download`** 是本次新增页面（旧站没有），文案可用 `app_texts` 的 `download.tip` 覆盖。
 8. **`/images/*` 由 Worker 从 R2 的 `images/` 前缀读取**，所以 `app/images` 的 4 个文件必须上传，否则菜单图标会 404。
-9. **管理功能**：**已全量迁移**（19 个页面，含数据库工具与素材库治理），见 `app/admin/README.md`；仍未实现的是 ffmpeg（旧站也没有）与进程内缓存（先不加）。
+9. **管理功能**：**已全量迁移**（18 个页面，含数据库工具与素材库治理），见 `app/admin/README.md`；仍未实现的是 ffmpeg（旧站也没有）与进程内缓存（先不加）。
 10. **框架层状态码与旧站一致**：未知路由 = 真 HTTP 404（`{code:404,msg:"接口不存在"}`）、未捕获异常 = 真 HTTP 500、请求体 >5MB = 413、`/apitest` 关闭 = HTTP 404 + `code:404` + `接口已关闭`。**业务失败仍是 HTTP 200 + `body.code`**（这条是硬口径，别改）。
 11. **CORS**：`ALLOWED_ORIGINS` 默认 `*`（与迁移前一致，小程序不带 Origin 不受影响）；填域名后只回白名单内的 Origin，且不启用 `allow-credentials`（旧站也是 `False`）。
 12. **参数语义对齐**：`intOf` = 旧站 `intval`（`int(float(v))`、溢出夹 `±2^31`、非法回退）；`/news/list` 的 `page` 夹到 1000；`/content/get_notice_unread` 未登录回 **200 + `未登录` + 空数据**（旧站口径，不是 401）；请求体上限 5MB（旧站 `BODY_LIMIT_BYTES`），multipart 豁免。

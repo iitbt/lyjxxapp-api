@@ -17,7 +17,7 @@ export const ENTITIES = {
     tables: ['news'],
     cachePrefixes: ['news:', 'dash:', 'config:'],
     auditPrefix: 'news',
-    statusKinds: ['news', 'user_news'],
+    statusKinds: ['news'],
     note: 'config: 是因为首页板块/精选会引用笔记内容'
   },
   banner: {
@@ -154,7 +154,6 @@ export const SUPER_ONLY_WRITE_PATHS = [
   '/admin/motorcycle_delete', // 删除摩旅精选
   '/admin/outdoor_delete',    // 删除户外精选
   '/admin/comments_manage',   // 留言审核/删除(POST)
-  '/admin/user_news_manage',  // 用户笔记审核/删除(POST)
   '/admin/users',             // 用户管理写操作(设/取消内部测试、恢复已注销、删用户)
   // 下面两条属于本次"不迁移"的页面(数据库管理 / 素材库删除)。照旧保留:
   // 将来真要补这两页时, 权限口径已经就位, 不会因为漏登记而被自检拦下

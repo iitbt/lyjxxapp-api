@@ -51,7 +51,11 @@ export function adminLayout(options = {}) {
   // 版本号只有一个来源(main.js 的 API_VERSION, 由入口注入到 ctx); 万一没注入, 也**不要**渲染出空的"v"
   const rawVersion = String(options.version || '');
   const version = encodeURIComponent(rawVersion);
-  const isSuper = options.isSuper === true;
+  // 超管标识与当前登录名有两个来源: 页面显式传的 options, 以及直接摊开的 ctx.session
+  // 两种写法在页面里都有, 漏传就会让"超管专属菜单"在某些页面消失(控制面板等 6 处就是摊 ctx)
+  const session = options.session || {};
+  const isSuper = options.isSuper === true || session.isSuper === true;
+  const admin = String(options.admin || session.username || '');
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -96,7 +100,7 @@ ${FAVICON_LINK}
         <h5 class="mb-0 text-truncate">${escapeHtml(title)}</h5>
       </div>
       <div class="d-flex align-items-center gap-2 flex-shrink-0">
-        <span class="badge bg-success-subtle text-success"><i aria-hidden="true" class="bi bi-person-circle"></i> ${escapeHtml(options.admin || '')}</span>
+        <span class="badge bg-success-subtle text-success"><i aria-hidden="true" class="bi bi-person-circle"></i> ${escapeHtml(admin)}</span>
         <form method="post" action="/admin/logout" class="d-inline">
           <button class="btn btn-outline-danger btn-sm" type="submit"><i class="bi bi-box-arrow-right" aria-hidden="true"></i> 退出</button>
         </form>

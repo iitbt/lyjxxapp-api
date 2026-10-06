@@ -78,19 +78,6 @@ export const STATUS_KINDS = {
     audit: 'admin.app_notice.status', cacheEntity: 'notice', idKey: 'notice_id',
     touchCol: 'update_time', asInt: true
   },
-  // 用户笔记审核: 与 /admin/user_news_manage 被列入超管专属的口径一致,
-  // 否则统一接口会变成绕开那道限制的后门
-  user_news: {
-    key: 'user_news', table: 'news', itemLabel: '用户笔记',
-    labels: { approved: ['已通过', 'success'], pending: ['待审核', 'warning'], rejected: ['已驳回', 'danger'] },
-    actions: [
-      { value: 'approved', label: '通过', btnClass: 'outline-success', fromValues: ['pending', 'rejected'] },
-      { value: 'rejected', label: '驳回', btnClass: 'outline-warning', fromValues: ['pending', 'approved'] }
-    ],
-    audit: 'admin.user_news.status', cacheEntity: 'news', idKey: 'news_id',
-    extraWhere: "type = 'users' AND deleted_at IS NULL",
-    superOnly: true
-  },
   motorcycle: {
     key: 'motorcycle', table: 'motorcycle_trips', itemLabel: '摩旅路线',
     labels: { approved: ['显示', 'success'], pending: ['待审核', 'warning'], rejected: ['已拒绝', 'danger'] },
