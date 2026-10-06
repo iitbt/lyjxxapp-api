@@ -83,6 +83,44 @@ test('编辑页: 必须引到上传与素材库脚本(漏引 = 点上传没反�
   }
 });
 
+test('编辑页: 富文本编辑器容器、自托管资源与三种插图入口都在', async () => {
+  const row = {
+    id: 5, title: '标题', desc: '简介', image: 'news_uploads/home/a.jpg',
+    video_url: '', content: '<p>正文</p><wx-video src="video/v.mp4"></wx-video>',
+    category: 'outdoor', type: 'users', status: 'approved', publish_time: '2026-10-01 10:00:00',
+    activity_time: '', view_count: 3, likes: 1, favorites: 0, shares: 0, user_id: 7
+  };
+  const { env } = makeAdminEnv({
+    role: 'super',
+    rows: { news: [row], app_categories: [{ category_key: 'outdoor', name: '户外' }] },
+    counts: { news: 1 }
+  });
+  const cookie = await loginCookie(env);
+  const html = await (await get('/admin/news_edit?id=5', env, cookie)).text();
+
+  // 容器三件套: 工具栏 + 编辑区 + 隐藏提交域(name=content)
+  assert.ok(html.includes('id="contentToolbar"'), '工具栏容器');
+  assert.ok(html.includes('id="contentEditor"'), '编辑区容器');
+  assert.ok(html.includes('id="contentRaw" name="content"'), '隐藏文本域承载提交值');
+  assert.ok(!html.includes('newsContentTextarea'), '旧的纯文本域不该还在');
+  assert.ok(html.includes(`data-media-prefixes="image/,video/,news_uploads/"`), '回显转换用同一份目录清单');
+  // 自托管资源(不走 CDN)与初始化脚本, 顺序: 样式 → 本体 → 初始化
+  for (const asset of ['vendor/wangeditor/style.css', 'vendor/wangeditor/index.js', 'js/news_editor.js']) {
+    assert.ok(html.includes(`/admin/static/${asset}?v=`), `${asset} 必须被引入`);
+  }
+  assert.ok(html.indexOf('vendor/wangeditor/index.js') < html.indexOf('js/news_editor.js'),
+    '编辑器本体要先于初始化脚本加载');
+  // 三种插图入口: 本地上传(kind=mixed + insert=editor) / 图片素材库 / 视频素材库(editor 模式)
+  assert.ok(html.includes('id="editorUploadModal"'), '正文本地上传弹窗');
+  assert.ok(html.includes('data-insert="editor"'), '上传成功后要插到编辑器');
+  assert.ok(html.includes('data-media-mode="editor"'), '素材库要走 editor 模式');
+  assert.ok(html.includes('data-media-target="#imageFieldUrl"'), '封面字段仍是 input 模式(两种模式互不干扰)');
+  // 回显: 库内 wx-video 要转成编辑器认识的 <video>(根路径), 再作为文本域的值被转义输出
+  const rawValue = (/<textarea id="contentRaw"[^>]*>([\s\S]*?)<\/textarea>/.exec(html) || [])[1] || '';
+  assert.ok(rawValue.includes('&lt;video src=&quot;/video/v.mp4&quot;'), 'wx-video 回显成 video');
+  assert.ok(!rawValue.includes('wx-video'), '交给编辑器的内容里不该再有 wx-video');
+});
+
 test('静态脚本不许有孤儿: 资源包里的每个 js 都要被页面或外壳引用', async () => {
   const { readdir, readFile } = await import('node:fs/promises');
   const assets = (await import('../app/admin/assets/static-assets.js')).default;

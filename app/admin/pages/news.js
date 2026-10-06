@@ -4,6 +4,7 @@ import { escapeHtml } from '../../core/html.js';
 import { all, one, run } from '../../core/db.js';
 import { assetUrl, mediaBase } from '../../core/media_scheme.js';
 import { sanitizeHtml } from '../../core/sanitize.js';
+import { MEDIA_PREFIXES } from '../../core/storage.js';
 import { beijingNow } from '../../core/timeutil.js';
 import { adminLayout } from '../lib/layout.js';
 import { optionsForSelect } from '../lib/categorySource.js';
@@ -373,9 +374,33 @@ function editView(ctx, { isNew, row, error, errorField, options }) {
       name: 'desc', label: '摘要 / 描述 (留空则自动截取正文)', value: row.desc, rows: 3, errorField
     })
     + `<div class="mb-3">
-      <label class="form-label" for="newsContentTextarea">正文内容 <span class="text-danger">*</span></label>
-      <textarea class="form-control${errorField === 'content' ? ' is-invalid' : ''}" name="content" id="newsContentTextarea" rows="18">${escapeHtml(contentValue)}</textarea>
-      <div class="form-text">支持 HTML 片段；正文里的视频用「本地上传 / 视频素材库」插入（地址会自动转成小程序格式）。</div>
+      <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-1">
+        <label class="form-label mb-0" for="contentRaw">正文内容 <span class="text-danger">*</span></label>
+        <div class="d-flex flex-wrap gap-2">
+          <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editorUploadModal">
+            <i class="bi bi-cloud-arrow-up" aria-hidden="true"></i> 本地上传</button>
+          <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#mediaLibraryModal"
+                  data-media-mode="editor" data-media-kind="image" data-media-lock-kind="1">
+            <i class="bi bi-images" aria-hidden="true"></i> 图片素材库</button>
+          <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#mediaLibraryModal"
+                  data-media-mode="editor" data-media-kind="video" data-media-lock-kind="1">
+            <i class="bi bi-film" aria-hidden="true"></i> 视频素材库</button>
+        </div>
+      </div>
+      <div class="mp-frame">
+        <div id="contentToolbar" class="border rounded-top bg-light"></div>
+        <div id="contentEditor" class="rich-editor border border-top-0 rounded-bottom${errorField === 'content' ? ' border-danger' : ''}"
+             data-media-prefixes="${escapeHtml(MEDIA_PREFIXES.join(','))}"${errorField === 'content' ? ' tabindex="-1" data-invalid="1"' : ''}></div>
+      </div>
+      <textarea id="contentRaw" name="content" class="form-control font-monospace d-none" rows="16" aria-required="true">${escapeHtml(contentValue)}</textarea>
+      <div class="form-text" data-hint-mobile-hidden>
+        富文本所见即所得，插图三种方式结果一致：① 上方<b>「本地上传」</b>（图片与视频都能选，传完插到正文光标处）；
+        ② <b>「图片素材库」/「视频素材库」</b>（点选后插到光标处）；③ 工具栏「图片 → 上传图片」「视频 → 上传视频」。<br>
+        图片以 <code>&lt;img src="image/…"&gt;</code> 入库、视频以小程序标签 <code>&lt;wx-video&gt;</code> 入库
+        （编辑页在"浏览器能播"与"小程序存储格式"之间自动转换，打开能看、保存不丢）。视频支持 mp4 / mov / m4v / webm，网页上传上限 64MB；
+        更大的视频可先传到素材目录再用「视频素材库」选。<br>
+        编辑器资源若未能加载，页面会退回普通文本域并给出提示（不阻塞编辑保存）。
+      </div>
     </div>`;
   const side = selectField({
     name: 'category', label: '分类', options: options.length ? options : [['', '（还没有可用分类）']],
@@ -394,10 +419,18 @@ function editView(ctx, { isNew, row, error, errorField, options }) {
     primaryLabel: isNew ? '发布笔记' : '保存修改'
   }) + imageUploadModal({ name: 'image', purpose: 'cover' })
     + imageUploadModal({ name: 'video_url', purpose: 'video', kind: 'video' })
+    // 正文「本地上传」: 图片与视频都收(kind=mixed), 传完由组件回调 MediaInsertFromUpload 插到光标处
+    + imageUploadModal({ name: 'editor', purpose: 'content', kind: 'mixed', insert: 'editor', title: '上传图片或视频到正文' })
     + mediaLibraryModal();
   return adminLayout({
     title: '编辑笔记', currentPage: 'news_manage', admin: ctx.session.username,
-    isSuper: ctx.session.isSuper, version: ctx.version, error, content
+    isSuper: ctx.session.isSuper, version: ctx.version, error, content,
+    // 编辑器只在编辑页加载: 样式 → 编辑器本体 → 本页的初始化脚本(顺序不能乱)
+    scripts: [
+      `<link rel="stylesheet" href="/admin/static/vendor/wangeditor/style.css?v=${encodeURIComponent(String(ctx.version || ''))}">`,
+      `<script src="/admin/static/vendor/wangeditor/index.js?v=${encodeURIComponent(String(ctx.version || ''))}"></script>`,
+      `<script src="/admin/static/js/news_editor.js?v=${encodeURIComponent(String(ctx.version || ''))}"></script>`
+    ].join('\n')
   });
 }
 

@@ -248,6 +248,25 @@ test('后台: 静态样式走白名单, 未知 key 404, 且无需登录', async 
   assert.equal(missing.status, 404);
 });
 
+test('后台: 富文本编辑器资源自托管且无需登录(不走 CDN)', async () => {
+  const { env } = makeEnv();
+  // 编辑器本体与样式都打进生成物里: 部署即生效, 不依赖 CDN 可达性
+  const css = await call('/admin/static/vendor/wangeditor/style.css', { env });
+  assert.equal(css.status, 200);
+  assert.match(css.headers.get('content-type'), /text\/css/);
+  assert.match(css.headers.get('cache-control'), /max-age=86400/);
+  assert.ok((await css.text()).includes('w-e-'), '应是 wangEditor 的样式');
+
+  const js = await call('/admin/static/vendor/wangeditor/index.js', { env });
+  assert.equal(js.status, 200);
+  assert.match(js.headers.get('content-type'), /application\/javascript/);
+  assert.ok((await js.text()).includes('createEditor'), '应是 wangEditor 本体');
+
+  const init = await call('/admin/static/js/news_editor.js', { env });
+  assert.equal(init.status, 200);
+  assert.ok((await init.text()).includes('MediaInsertFromLibrary'), '编辑页的插入落点');
+});
+
 test('后台: 不在菜单里的路径给 404(后台已全量迁移, 没有"待迁"入口了)', async () => {
   const { env } = makeEnv();
   const cookie = await login(env);

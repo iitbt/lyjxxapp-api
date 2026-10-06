@@ -2,7 +2,7 @@
 
 > 项目：`app/api-cf/`（Workers + D1 + R2，**只有对外 API，没有管理后台**）。
 > 迁移设计见 `Plan.md`，接口台账见 `notes/api-inventory.md`，限流方案见 `notes/limits-design.md`，运营改数见 `notes/ops-sql.md`，本地跑法见 `README.md`。
-> 代码与自测已完成（33 条接口、175 条用例全绿），本文件只讲"怎么推上云"。部署动作全部由你执行。
+> 代码与自测已完成（33 条接口、178 条用例全绿），本文件只讲"怎么推上云"。部署动作全部由你执行。
 
 ## 0. 命名约定（固定，不要改）
 
@@ -310,7 +310,7 @@ npm run secrets:put
 
 ### B7. 本地自检（部署前）
 ```powershell
-npm test          # 175 条用例, 应全绿(不需要账号与网络)
+npm test          # 178 条用例, 应全绿(不需要账号与网络)
 npm run dev       # 本地起服务 http://127.0.0.1:8787, 先看 / 与 /health/ready
 ```
 
@@ -421,6 +421,33 @@ jobs:
 
 ---
 
+## 富文本编辑器（`news_edit` 正文）
+
+编辑器是 **wangEditor v5.1.23**（与旧站同一个版本、同一套初始化逻辑），但**资源自托管、不走 CDN**：
+
+| 项 | 做法 |
+|---|---|
+| 资源位置 | `app/admin/static/vendor/wangeditor/{index.js,style.css}`（1.27 MB + 15 KB）。与旧站 CDN 上那份**逐字节相同**，可复核：`sha384` 分别是 `sha384-zvb7uTnmHz+292Yb+…`（js）与 `sha384-C75sGbV8c7rMv…`（css） |
+| 打包与服务 | `node tools/embed_admin_assets.mjs` 把 `static/**` 打进生成物 `app/admin/assets/static-assets.js`，由 Worker 在 `/admin/static/**` 直出（**免登录**，`js`/`css` 的 MIME 由扩展名兜底）→ **部署即生效，不需要再往 R2 传任何东西** |
+| 页面引用 | 只在**编辑页**加载，顺序不能乱：`vendor/wangeditor/style.css` → `vendor/wangeditor/index.js` → `js/news_editor.js`（见 `app/admin/pages/news.js` 的 `scripts`） |
+| 缓存 | 三者都带 `?v=<API_VERSION>`；Worker 返回 `cache-control: public, max-age=86400`（图标字体 1 年，R2 素材 7 天）。**改了编辑器或初始化脚本必须升 `API_VERSION`**，否则用户拿到的是旧缓存 |
+| 体积 | 生成物约 **2.4 MB 原始 / 0.80 MB gzip**（编辑器占 1.27 MB 原始 / 0.37 MB gzip）；Workers 免费版脚本上限 3 MB（压缩后），仍有余量。`wrangler deploy` 的包体因此变大是预期内的 |
+| 加载失败兜底 | `window.wangEditor` 缺失或初始化抛错：隐藏编辑器与工具栏、露出**普通文本域**（照旧可编辑保存），并在页面上显示一条告警写明原因 → 不会出现"编辑页打不开" |
+| 内容格式 | 与旧站一致：图片入库为相对路径 `<img src="image/…">`、视频入库为小程序标签 `<wx-video src="video/…">`；编辑器里显示的是根路径 + `<video>`，保存时由 `app/admin/lib/newsContent.js` 还原。编辑器的 `data-w-e-*` 私有属性与外层容器在入库前被清掉（净化的白名单里本来也没有它们） |
+
+**为什么不用 CDN**（旧站是 jsdelivr + SRI）：
+
+- 本站面向国内用户，公共 CDN 可达性不稳定 —— 这正是"编辑器打不开"最容易复发的地方；
+- 自托管后编辑器与其它后台资源**同一条链路**（同一 MIME 兜底、同一缓存键、同一份生成物），没有第二个发布步骤；
+- 被否掉的备选：① 放 R2 并新增 `/vendor/` 直出前缀 —— Worker 体积小，但多一个"必须记得上传"的手工步骤，忘了就只剩文本域；② 继续用 CDN —— 改动最小，但把可用性押在外部网络上。本次选**打进生成物**，代价是 Worker 脚本大 0.37 MB（gzip）。
+
+### 编辑器相关的两处实现细节（改之前先看）
+
+- **回显时把顶层图片包进 `<p>`，保存时拆回来**：wangEditor v5.1.23 解析"顶层连续 `<img>` 后面跟 `<video>`"时会丢图、甚至抛 `Cannot find a descendant at path [n]`（真实 Chromium 实测：单图+视频丢图，双图+视频直接报错）。`js/news_editor.js` 因此在回显时给顶层图片各包一层 `<p>`、保存时把"只有一张图"的段落再拆回顶层 —— **库内格式一个字节都不变**。
+- **插入用"带校验的插入"**：上一次插入后编辑器会留一个失效选区，直接 `restoreSelection()` + `insertNode()` 会**静默失败**（不报错也不生效，实测：插过视频之后再插图片就丢）。`insertNode()` 现在插完比对模型，没插进去就重聚焦再试一次，仍失败则把原因写到弹窗里（素材库弹窗与上传弹窗各写一份，不会静默）。
+
+---
+
 ## 素材对外域名（`MEDIA_BASE`）怎么选
 
 库里只存**相对路径**（历史是 `news_uploads/home/a.jpg`，新上传是 `image/a.png`），下发时由 Worker 拼上 `MEDIA_BASE`。两种填法都能用：
@@ -487,6 +514,8 @@ curl.exe -s https://lyjx.250036.xyz/admin/login | Select-String 'rel="icon"'
 | 后台「本地上传」选一张图/一段视频 → 点上传 | 进度条走完并提示 `上传成功: image/xxx.png`（视频为 `video/xxx.mp4`），字段被回填；素材库弹窗里能立刻看到它（带目录徽章） |
 | 后台笔记编辑页点「图片素材库」/「视频素材库」 | 弹窗按类型列出来自 R2 的素材（每行带目录徽章 `image`/`news_uploads`，图片优先显示缩略图，没有则回退原图），点一行即把相对路径回填到对应字段 |
 | 后台笔记编辑页的 HTML 里 | 必须能看到 `/admin/static/js/image_upload.js?v=` 与 `/admin/static/js/media_library.js?v=`（这两个脚本由外壳统一引，见下表"点上传没反应"） |
+| `GET /admin/static/vendor/wangeditor/index.js`、`/admin/static/vendor/wangeditor/style.css`、`/admin/static/js/news_editor.js` | **200**（免登录）；MIME 分别为 `application/javascript` / `text/css`；带 `max-age=86400` |
+| 后台笔记编辑页的正文 | 是**富文本编辑器**（工具栏 + 可编辑区），存量内容里的图片与视频都在；三种插图入口（本地上传 / 图片素材库 / 视频素材库）都能插到光标处；保存后 `news.content` 仍是"相对路径 + `<wx-video>`" |
 | `node tools/thumb_plan.mjs --check <已有清单> <原图清单>` | 逐条标 `有`/`缺`；有缺失时退出码 **1**（原图 → 期望缩略图 key 的映射见「素材目录」节的缩略图表） |
 | 笔记列表（带 `page`）里某条有缩略图 | 该条带 `image_thumb` 且指向 `<素材目录>_thumb/480/<名>.webp`；没有就**没有这个键**（不是空串） |
 | `GET /?format=json` | `{"name":"狼牙极限运动笔记API","description":"本服务为…数据服务。","status":"运行中","server_time"}`（name/description/status 三值与旧站逐字一致） |
@@ -539,6 +568,8 @@ curl.exe -s https://lyjx.250036.xyz/admin/login | Select-String 'rel="icon"'
 | 素材库弹窗里看不到刚上传的图 | 列举只认 `image/`、`video/` 与历史 `news_uploads/`；若 R2 里对象被放到别的目录（例如手工 `r2 object put` 时写错前缀）就不会出现 | 按 `库内相对路径 = R2 key` 重传；目录清单见「素材目录」节 |
 | 素材库/编辑页里的缩略图不显示 | 缩略图离线生成（Cloudflare 侧不生成），且 key 必须落在"目录随原图走"的位置：`image/` 的原图要放 `image/_thumb/480/…`，放成 `news_uploads/_thumb/…` 不会被命中 | 用 `node tools/thumb_plan.mjs --check …` 列出缺的 key 并按它上传（见「素材目录」节的缩略图段）；没有缩略图只是回退原图，不影响功能 |
 | 编辑页（`news_edit` 等）点「本地上传」没反应；「图片/视频素材库」弹窗点开是空白 —— 而 `/admin/media_manage` 一切正常 | 上传与素材库这两块**由前端脚本驱动**（`image_upload.js` 认领表单并改走 XHR、`media_library.js` 拉列表并回填），而素材库管理页是**服务端直出**、不依赖脚本，所以只有编辑页会坏。这两个脚本由 `app/admin/lib/layout.js` 的 `MODAL_SCRIPTS` 统一引入（旧站是模板各自带 `<script>`，抽成 `partials.js` 时标签丢了→页面有弹窗有表单却没人处理 submit） | 打开编辑页看 HTML 里有没有 `/admin/static/js/image_upload.js?v=`、`/admin/static/js/media_library.js?v=`；改过 `app/admin/static/**` 必须 `node tools/embed_admin_assets.mjs` 并升 `API_VERSION` 后重新部署（`tests/admin_submit_action.test.mjs` 有"资源包不许有孤儿脚本"的检查拦这类回退） |
+| 编辑页正文**没有工具栏**、退回成普通文本域，页面上有一条黄色告警 | 编辑器资源没加载：改了 `static/**` 但没重跑 `tools/embed_admin_assets.mjs`，或没升 `API_VERSION` 导致浏览器拿旧缓存，或部署包不全 | 重跑生成脚本 + 升 `API_VERSION` 重新部署；再硬刷页面（告警文案里也写了原因） |
+| 编辑器里插图"点了没反应"（弹窗里没报错） | 极少数情况下编辑器没有可用插入位置（选区失效）—— 已改为"插入后校验、失败重聚焦重试、仍失败则把原因写进弹窗" | 升级部署到 2.2.0+；若仍失败，先在正文里点一下光标再插 |
 | 后台"执行 SQL"一直提示"请输入要执行的 SQL" | 前端发的是 JSON，而入口只解析 urlencoded（2.1.6 已修） | 升级部署到 2.1.6+ |
 | 普通管理员能打开"管理员管理"或提交成功 | 该页原本只在页面内自查超管（2.1.6 起分发层也拦 `route_super`） | 升级部署到 2.1.6+；普通管理员会看到 403 |
 | `/admin/bootstrap` 说"已经初始化过" | `admin_users` 里已有账号 | 直接去 `/admin/login`；**忘了口令**就 `DELETE FROM admin_users;` 后重新 bootstrap（A8 有完整步骤） |

@@ -39,7 +39,7 @@ app/admin/
 │   └── static-assets.js # 生成物: static/** 全部资源(css/js/vendor/字体)的 JS 文本模块
 └── static/             # 样式与脚本原件(生成来源与对照, Worker 不直接读它)
     ├── css/admin.css  js/{sidebar-groups,admin-shell,infinite_scroll,status-toggle,image_upload,media_library,live_time}.js
-    └── vendor/{bootstrap.min.css,bootstrap-icons.min.css,bootstrap.bundle.min.js,fonts/*.woff*}
+    └── vendor/{bootstrap.min.css,bootstrap-icons.min.css,bootstrap.bundle.min.js,fonts/*.woff*,wangeditor/{index.js,style.css}}
 ```
 
 ## 二、迁移状态
@@ -109,7 +109,7 @@ DELETE FROM admin_users;   -- 清掉全部管理员(通常只有 1 个)
 | 素材库治理 | `os.walk` 扫本地目录 + 15 秒进程内扫描缓存 | **R2 列举**（无进程内缓存，每次真扫元信息）；占用统计分"原文件"与"派生缩略图"两栏 |
 | 素材删除 | `os.remove`（同样不可恢复） | R2 `delete`（无回收站）；同样"有引用一律拒绝 + 服务端确认页" |
 
-## 四·五、八处实现约定（改这里之前先读）
+## 四·五、九处实现约定（改这里之前先读）
 
 | 约定 | 为什么 | 改哪里 |
 |---|---|---|
@@ -118,6 +118,7 @@ DELETE FROM admin_users;   -- 清掉全部管理员(通常只有 1 个)
 | **素材目录只认 `core/storage.js` 的常量**：新上传落 `image/`、`video/`、`avatar/`；列举/引用判定/直出都要覆盖历史目录 `news_uploads/`、`avatar_uploads/`；缩略图位置也由同一处的 `thumbKeyOf` 决定（**目录随原图走**，子目录扁平到 `<素材目录>_thumb/<宽>/`） | 目录散落在多处各写一份时，会出现"传上去但素材库里看不到""老素材被判成未引用而误删""缩略图放错目录永远探不到"这类静默事故（旧实现就是 `mediaUpload.js` 与 `core/storage.js` 各有一份 `news_uploads/`） | `app/core/storage.js`（`MEDIA_PREFIXES`/`SERVED_PREFIXES`/`thumbKeyOf`）；调用方只 import，不自己拼 |
 | **上传弹窗靠 `static/js/image_upload.js` 认领**：表单只写 `data-endpoint/data-purpose/data-kind/data-target/data-insert`，发请求的是那个脚本（capture 阶段监听 submit） | 这段绑定原先在旧站模板里，抽静态脚本时漏掉了 → 点「上传」变成整页提交，表现为"上传没反应/上传失败"（`tests/admin_submit_action.test.mjs` 会拦回退） | `app/admin/lib/partials.js`（渲染表单）；`static/js/image_upload.js`（绑定与回填） |
 | **弹窗类脚本由外壳统一引**：`image_upload.js`、`media_library.js` 在 `lib/layout.js` 的 `MODAL_SCRIPTS` 里引入；`partials.js` 只渲染弹窗 HTML，**不带** `<script>` | 旧站是 `_image_upload_field.html` / `_media_library_modal.html` 各自带 `<script src>`，抽成 `partials.js` 时标签丢了 → 页面有弹窗有表单却没人处理 submit/拉列表：**点「上传」变整页提交、素材库弹窗点开空白**；而服务端直出的 `/admin/media_manage` 不受影响，极易误判成后端问题（`tests/admin_submit_action.test.mjs` 有一条"资源包不许有孤儿脚本"的检查） | `lib/layout.js`（`MODAL_SCRIPTS`）；两个脚本各自带幂等守卫（`__imageUploadBound` / `__mediaLibraryBound`） |
+| **编辑器资源与初始化脚本只服务编辑页**：`vendor/wangeditor/{style.css,index.js}` 与 `js/news_editor.js` 在 `pages/news.js` 的 `scripts` 里按序引；脚本内部的一切插入都走"插完校验"（编辑器对失效选区是静默失败） | 编辑器是 1.27 MB 的库，挂到外壳上会让**每个**后台页面都多背这份体积；而"点上传没反应""素材库插不进去"这类问题全都出在初始化/插入这条链上，只有编辑页需要 | `pages/news.js`（`scripts` 与容器三件套 `#contentToolbar/#contentEditor/#contentRaw`）；`static/js/news_editor.js`（初始化 + 回显/入库转换 + 两个插入落点） |
 | **超管专属入口要有第二道闸**：`entities.js` 的 `SUPER_ONLY_WRITE_PATHS` 与 `ROUTE_SUPER_ONLY_WRITE_PATHS` 都在分发前拦；页面内自查只是补强 | `ROUTE_SUPER_ONLY` 原本约定"页面自己判"，而管理员页漏了判 → 任何登录账号都能 POST 增删管理员/重置口令（2.1.6 修）。写路径清单是唯一权威，页面自查不能替代它 | `app/admin/index.js`（分发前的 403）；`lib/entities.js`（清单）；`pages/adminUsers.js`（整页仅超管） |
 | **超管标识与登录名一律从 `ctx.session` 派生**：`adminLayout` 同时接受显式 `isSuper` 与摊开的 `ctx.session`（`session.isSuper`），顶栏用户名同理 | 页面里两种调用风格并存（`{ isSuper: ctx.session.isSuper, … }` 与 `Object.assign({}, ctx, …)`），只认显式那一种时，超管专属菜单会在"只摊 ctx"的页面（控制面板、错误页、工具页自身）整体消失 —— 表现为"有时看不到" | `lib/layout.js` 的 `adminLayout`；新增页面两种风格都能用（自检见 `tests/admin_sidebar_menus.test.mjs`） |
 | **动作字段一律用隐藏域**：`<input type="hidden" name="action" value="restore_user">` 或 `name="delete_admin" value="1"`，**不要**把动作挂在提交按钮的 `name/value` 上 | 表单数据是在 submit 事件**走完之后**才构造的，"提交时被禁用/被脚本锁定的按钮"不进表单数据 → 那个字段整条丢失 → 后端只回"未识别的操作"（2026-10-06 线上：用户管理两个按钮只发出 `user_id`/`page`，真实 Chromium 实测复现）。同理 `admin-shell.js` 锁按钮**只能**用 `aria-disabled` + `pointer-events`，绝不能设 `btn.disabled = true`（`tests/admin_submit_action.test.mjs` 会拦回退） | `lib/partials.js` 之外的各页表单；`static/js/admin-shell.js` 的 `lockButton` |
@@ -149,7 +150,7 @@ node tools\embed_admin_assets.mjs
 
 ## 六、本地怎么测
 
-- `cd app/api-cf && node --test`：**175 条**用例，覆盖三件套(权限归类/工厂/工具)、外壳(守卫/状态切换/宏/版本号注入/动作字段防回退/侧栏超管菜单/route_super 双闸/JSON 体解析/上传表单绑定/弹窗脚本引用与孤儿脚本检查)、素材目录(新旧目录列举、引用判定、缩略图目录随原图走、缩略图占用统计)/各页图标)、媒体直出与 R2 绑定名、
+- `cd app/api-cf && node --test`：**178 条**用例，覆盖三件套(权限归类/工厂/工具)、外壳(守卫/状态切换/宏/版本号注入/动作字段防回退/侧栏超管菜单/route_super 双闸/JSON 体解析/上传表单绑定/弹窗脚本引用与孤儿脚本检查)、正文编辑器(容器与资源引用、回显转换、新目录素材进出库)、素材目录(新旧目录列举、引用判定、缩略图目录随原图走、缩略图占用统计)/各页图标)、媒体直出与 R2 绑定名、
   全部页面模块的端到端（列表/片段/编辑/删除/上传/预览）、数据库工具与素材治理两页的闸门与判定、对外接口的契约定档。
 - `node tools/live_smoke.mjs`：真实库结构与数据下的对外接口端到端（后台改动不该影响它）。
 - `node tools/thumb_plan.mjs [原图清单] [--check 已有对象清单] [--widths 480,800]`：按"目录随原图走"算出每个原图期望的缩略图 key；`--check` 逐条标 `有/缺`（缺了退出码 1）。素材库/编辑页的缩略图不显示时用它定位。

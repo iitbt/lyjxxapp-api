@@ -4,6 +4,7 @@
 // 浏览器与富文本编辑器都不认识它 —— 直接拿到编辑页会被编辑器丢掉("打开看不到视频, 一保存就没了"),
 // 预览页则什么都不显示。所以三处复用同一套转换: 编辑页回显 / 入库还原 / 预览页渲染。
 import { assetUrl } from '../../core/media_scheme.js';
+import { AVATAR_PREFIX, LEGACY_AVATAR_PREFIX, MEDIA_PREFIXES } from '../../core/storage.js';
 import { strOf } from './utils.js';
 
 const WX_VIDEO_TAG_RE = /<wx-video\b[^>]*>\s*(?:<\/wx-video\s*>)?/gi;
@@ -14,7 +15,9 @@ const DATA_WE_ATTR_RE = /data-w-e-[a-z-]+(?:\s*=\s*["'][^"']*["'])?/gi;
 const TAG_ATTR_RE = /([a-zA-Z-:]+)\s*=\s*(["'])(.*?)\2/g;
 const IMG_TAG_RE = /(<img\b[^>]*\bsrc=)(["'])([^"']+)\2/gi;
 
-const STATION_REL_PREFIXES = ['news_uploads/', 'avatar_uploads/'];
+// 站内素材目录(真值在 core/storage.js): 新目录 image//video/ 与历史 news_uploads/ 都要能来回转换,
+// 否则新上传的图片/视频会带着前导 "/" 落库、或回显时被解析到 /admin/ 下而裂图
+const STATION_REL_PREFIXES = MEDIA_PREFIXES.concat([AVATAR_PREFIX, LEGACY_AVATAR_PREFIX]);
 
 // 只搬运双方都认的属性; wx-video 侧补回与库内历史数据同形的属性(都在净化白名单里)
 const WX_VIDEO_ATTRS = ['src', 'poster', 'controls', 'show-center-play-btn', 'show-play-btn', 'object-fit'];

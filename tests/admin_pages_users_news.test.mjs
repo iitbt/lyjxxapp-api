@@ -148,6 +148,26 @@ test('笔记编辑: 必填项合并成一句, 正文视频转成 wx-video 且摘
   assert.equal(insert.args[7], '2026-10-05 10:30:00', 'datetime-local 的 T 要归一');
 });
 
+test('笔记编辑: 新目录素材(image//video/)进出库都还原成相对记录值', async () => {
+  const { env, state } = makeAdminEnv({
+    rows: { app_categories: [{ category_key: 'outdoor', name: '户外', status: 1 }] }
+  });
+  const cookie = await loginCookie(env);
+  // 编辑器交上来的是站点根路径(编辑页在 /admin/ 下, 相对地址会解析错), 图片与视频都要还原成相对值
+  const stored = await post('/admin/news_edit?id=0', {
+    title: '新目录素材', category: 'outdoor', image: '/image/cover.png',
+    content: '<p>正文</p><img src="/image/a.png"><video src="/video/v.mp4" controls></video>',
+    status: '1', publish_time: '2026-10-06T09:00'
+  }, env, cookie);
+  assert.equal(stored.status, 302);
+  const insert = findCall(state, /INSERT INTO news/i);
+  assert.ok(insert.args[2].includes('<img src="image/a.png">'), '图片要还原成 image/ 相对值');
+  assert.ok(insert.args[2].includes('<wx-video src="video/v.mp4"'), '视频要还原成 video/ 相对值');
+  assert.ok(!insert.args[2].includes('"/image/'), '入库不该留前导斜杠');
+  // 封面/视频地址是单值字段, 与旧站一致只做去空白(不做路径归一): 素材库与上传给的本来就是相对值
+  assert.equal(insert.args[4], '/image/cover.png');
+});
+
 test('笔记删除与复制: 文案与幂等键', async () => {
   const { env, state } = makeAdminEnv({
     db: (sql, args, kind) => {
