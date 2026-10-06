@@ -106,7 +106,7 @@ async function systemInfoPage(ctx) {
   ${runtime}${database}${storage}${toggles}
   <div class="card mt-3"><div class="card-body d-flex flex-wrap gap-2">
     ${backButton('/admin/dashboard', '返回控制面板')}
-    <a class="btn btn-outline-secondary" href="/admin/static/js/live_time.js" target="_blank" rel="noopener">查看实时时钟脚本</a>
+    <a class="btn btn-outline-secondary" href="/admin/static/js/live_time.js?v=${encodeURIComponent(String(ctx.version || ''))}" target="_blank" rel="noopener">查看实时时钟脚本</a>
   </div></div>
   <script src="/admin/static/js/live_time.js?v=${encodeURIComponent(String(ctx.version || ''))}" defer></script>`;
   auditLog('admin.system_info.view', { user: ctx.session.username });

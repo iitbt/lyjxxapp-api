@@ -400,9 +400,11 @@ jobs:
 
 | 项 | 做法 | 为什么 |
 |---|---|---|
-| 页面引用 | `<link rel="icon" href="/favicon.ico" type="image/x-icon">`，由 `core/html.js` 的 `FAVICON_LINK` 统一注入（状态页 / 协议·隐私·下载页 / 后台所有页 / 登录页 / 初始化页） | **根绝对路径、不带域名**：自定义域 `lyjx.250036.xyz`、`*.workers.dev` 预览域、本地 `wrangler dev` 都成立；写死域名会在预览域失效 |
+| 页面引用 | `<link rel="icon" href="/favicon.ico?v=<内容指纹>" type="image/png">`，由 `core/html.js` 的 `FAVICON_LINK` 统一注入（状态页 / 协议·隐私·下载页 / 后台所有页 / 登录页 / 初始化页） | **根绝对路径、不带域名**：自定义域 `lyjx.250036.xyz`、`*.workers.dev` 预览域、本地 `wrangler dev` 都成立；写死域名会在预览域失效 |
 | 服务侧 | Worker 路由 `GET /favicon.ico`，返回内联字节（在 `/images/*` 判定之后、路由表之前） | Workers/Pages 上 `/favicon.ico` 只是一次普通请求，**不会自动命中静态托管**；图标必须由 Worker 自己响应 |
-| 响应头 | `content-type: image/x-icon`、`cache-control: public, max-age=604800`、`etag`（内容指纹） | 浏览器对图标是**按地址缓存**的：没有长缓存 + 稳定 ETag，每个页面都会再拉一次（旧站 StaticFiles 给的也是 `max-age=604800`） |
+| 响应头 | `content-type: image/png`、`cache-control: public, max-age=604800`、`etag`（内容指纹） | 浏览器对图标是**按地址缓存**的：没有长缓存 + 稳定 ETag，每个页面都会再拉一次（旧站 StaticFiles 给的也是 `max-age=604800`） |
+| 类型要与字节一致 | 这个 `favicon.ico` **其实是 800×800 的 PNG**（前 8 字节是 PNG 魔数），所以声明 `image/png`；页面 `type=` 与响应 `Content-Type` 同源取自 `core/favicon.js` | 类型与真实字节不符、又带 `x-content-type-options: nosniff` 时，挑剔的客户端（非 Chromium 内核的 WebView 等）会直接丢掉图标 |
+| 带 `?v=<指纹>` | 指纹 = 图标内容 hash（`FAVICON_HASH`），与 `etag` 同源 | 浏览器**按站点**记"有没有图标"：本站以前 404 过（内联之前就是 404），不加指纹它不会主动重取，表现为"改好了也一直不显示" |
 | 换图标 | 覆盖 `app/favicon.ico` → `node tools/embed_favicon.mjs` → 升 `main.js` 的 `API_VERSION` → 部署 | 生成物与版本号联动，避免"换了图标但用户看到的是旧缓存" |
 | 后端直出 | 不依赖 R2 里有没有该对象，也不额外消耗 R2 子请求 | 内联之前线上 `/favicon.ico` 就是"R2 里没这个对象 → 404" |
 
@@ -410,8 +412,16 @@ jobs:
 
 ```powershell
 curl.exe -I https://lyjx.250036.xyz/favicon.ico
-# 期望: 200 / content-type: image/x-icon / cache-control: public, max-age=604800 / 有 etag
+# 期望: 200 / content-type: image/png / cache-control: public, max-age=604800 / 有 etag
+curl.exe -s https://lyjx.250036.xyz/admin/login | Select-String 'rel="icon"'
+# 期望: <link rel="icon" href="/favicon.ico?v=<指纹>" type="image/png">
 ```
+
+> **浏览器仍不显示时**（服务端已 200 却还是默认地球图标）：这是浏览器按站点缓存的旧结论，按顺序试——
+> ① 强刷 `Ctrl+F5`（或 `Ctrl+Shift+R`）；② 关掉全部本站标签页再打开；
+> ③ 清掉该站点数据（Chrome：地址栏左边图标 → Cookie 和网站数据 → 删除）；
+> ④ 换个浏览器/隐身窗口验证（隐身窗口一定是最新结果）。
+> 本次已经用"换 URL（`?v=`）"来规避这一条，正常用户重新打开页面就会取到新图标。
 
 > `/images/logo.png` 是另一回事（登录页品牌图标，走 R2 的 `images/` 前缀）。
 > R2 里没有它时登录页显示兜底的盾牌图标（不会裂图）；想换成真 logo，把它传到 `images/` 前缀即可。
@@ -423,7 +433,8 @@ curl.exe -I https://lyjx.250036.xyz/favicon.ico
 | 请求 | 期望 |
 |---|---|
 | `GET /` | HTML 状态页（服务名 + 运行中药丸 / 服务器时间·走动 / 进程启动时间·当前 isolate / 数据统计 6 项 / 依赖状态监控 D1+R2 与总连接状态 / 使用说明），与旧站 `templates/status.html` 同形 |
-| `GET /favicon.ico` | **200** + `content-type: image/x-icon` + `cache-control: public, max-age=604800`（内联字节直出，不需要往 R2 传） |
+| `GET /favicon.ico` | **200** + `content-type: image/png` + `cache-control: public, max-age=604800`（内联字节直出，不需要往 R2 传） |
+| 任意页面 `view-source` 或 `curl` 看 `<head>` | 都有同一串 `<link rel="icon" href="/favicon.ico?v=<指纹>" type="image/png">`（状态页 / 协议页 / 登录页 / 后台各页都一致） |
 | `GET /images/<已上传的图>` | **200** + `etag` + `cache-control: public, max-age=604800` + `accept-ranges: bytes` |
 | `GET /news_uploads/home/<已上传的图>`（或 `/avatar_uploads/...`） | 同上；带 `Range: bytes=0-1023` 时回 **206** + `content-range`（视频拖动/续播靠它） |
 | `GET /news_uploads/<不存在的对象>` | **404**；R2 绑定名写错时是 **502**（说明 `wrangler.toml` 与桶没对上） |
@@ -472,6 +483,9 @@ curl.exe -I https://lyjx.250036.xyz/favicon.ico
 | 改了变量/密钥但没生效 | 运行中的是旧部署 | Retry deployment / `npm run deploy` 再来一次 |
 | 小程序请求被微信拦 | 服务器域名白名单没加 | 加 `lyjx.250036.xyz` 与 `storage.250036.xyz`（旧线路 `api0.250036.xyz` 一起留着，回滚要用） |
 | 访问 `/admin` 看到"后台未就绪" | 没配 `ADMIN_SESSION_SECRET` | 见 A8 第 2 步（加密变量），配完重新部署 |
+| 图标不显示，但 `curl -I /favicon.ico` 是 200 | 浏览器按**站点**记着旧的"没有图标"（本站此前 404 过；浏览器不因服务端变好就重取） | 本版页面引用已带 `?v=<指纹>`，重开页面即生效；仍不显示看「站点图标」节的四步（强刷 / 关标签页 / 清站点数据 / 隐身窗口） |
+| 后台"执行 SQL"一直提示"请输入要执行的 SQL" | 前端发的是 JSON，而入口只解析 urlencoded（2.1.6 已修） | 升级部署到 2.1.6+ |
+| 普通管理员能打开"管理员管理"或提交成功 | 该页原本只在页面内自查超管（2.1.6 起分发层也拦 `route_super`） | 升级部署到 2.1.6+；普通管理员会看到 403 |
 | `/admin/bootstrap` 说"已经初始化过" | `admin_users` 里已有账号 | 直接去 `/admin/login`；**忘了口令**就 `DELETE FROM admin_users;` 后重新 bootstrap（A8 有完整步骤） |
 | 登录总说"用户名或密码不正确" | 输错了，或 15 分钟内的失败次数到了上限（5 次/IP） | 等窗口过期再试；急着清就 `DELETE FROM rate_limit_counters WHERE scope='login'` |
 | `/admin/db_manage` 提示"数据库工具未开启" | `ENABLE_SQL_TOOL` 还是 `0` | 改成 `"1"` 重新部署（A8.5）；用完改回 |

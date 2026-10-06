@@ -28,11 +28,13 @@ async function libraryHandler(ctx) {
   const kind = ctx.query.kind === 'video' ? 'video' : 'image';
   const listed = await listMedia(ctx.env, kind, ctx.query.q);
   if (!listed.success) return json(listed);
-  // thumb 只在缩略图已存在时给(Workers 不生成缩略图, 缺了就回退原图)
-  const items = [];
-  for (const item of listed.items) {
-    items.push(Object.assign({}, item, { thumb: await thumbUrlOf(ctx.env, item) }));
-  }
+  // thumb 只在缩略图已存在时给(Workers 不生成缩略图, 缺了就回退原图; 前端 onerror 也会回退)
+  // 探测要限次: 每次 head 都算一次子请求, 列表上千条会把免费套餐的 50 次/请求直接打穿
+  const MAX_THUMB_CHECKS = 20;
+  const checks = await Promise.all(
+    listed.items.slice(0, MAX_THUMB_CHECKS).map((item) => thumbUrlOf(ctx.env, item))
+  );
+  const items = listed.items.map((item, index) => Object.assign({}, item, { thumb: checks[index] || '' }));
   return json({ success: true, kind: listed.kind, items, total: items.length, accept: listed.accept });
 }
 

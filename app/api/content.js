@@ -5,6 +5,7 @@ import { assetUrl } from '../core/media_scheme.js';
 import { currentUser, tokenOf } from './helpers.js';
 import { clampPage } from './schemas.js';
 import { beijingNow, datePart } from '../core/timeutil.js';
+import { logError } from '../core/logging.js';
 
 const LEVEL_TEXT = { info: '公告', warning: '提醒', important: '重要' };
 const VIDEO_TABLES = ['outdoor_activities', 'motorcycle_trips'];
@@ -148,6 +149,8 @@ export function registerContentRoutes(router) {
         has_more: (page - 1) * size + list.length < total
       }, '获取通知公告成功');
     } catch (error) {
+      // 口径不变(小程序看到的是"成功但空列表"), 但故障必须留痕, 否则线上只会表现为"公告都没了"
+      logError('content.notices_query_failed', error);
       return okMessage({ list: [], total: 0, page: 1, page_size: 10, pageSize: 10, has_more: false }, '获取通知公告成功');
     }
   });

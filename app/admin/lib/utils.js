@@ -140,11 +140,5 @@ export function invalidateEntityCache(entityKey) {
 }
 
 // 审计: 旧站写日志文件(audit_log), 这边进 Workers Logs(控制台可见)
-// 不建审计表: 需要"可查询的审计"时再补, 现在只是留痕
-export function auditLog(action, payload = {}) {
-  try {
-    console.log(JSON.stringify({ audit: action, ...payload }));
-  } catch (error) {
-    console.error('audit log failed', action, error && error.message);
-  }
-}
+// 统一走 core/logging.js 的实现(那里有键名与文本双重脱敏); 这里只保留后台侧的历史入口
+export { auditLog } from '../../core/logging.js';

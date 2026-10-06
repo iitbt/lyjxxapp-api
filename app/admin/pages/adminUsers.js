@@ -233,7 +233,16 @@ async function writeSubmit(ctx) {
   return managePage({ request: ctx.request, env: ctx.env, method: 'GET', path: ctx.path, url: ctx.url, query: ctx.query, form: {}, session: ctx.session, version: ctx.version, message, error });
 }
 
+// 这一页整页只给超管: 写操作由分发层按 route_super 拦(见 entities.js), 列表本身也不该给普通管理员看
+function guard(ctx) {
+  if (ctx.session.isSuper) return null;
+  return new Response(adminLayout(Object.assign({}, ctx, {
+    title: '没有权限', currentPage: '', error: '该页面仅超级管理员可访问',
+    content: '<div class="card-stat">你的账号不是超级管理员，看不到这个页面。</div>'
+  })), { status: 403, headers: { 'content-type': 'text/html; charset=utf-8' } });
+}
+
 export const routes = [
-  { methods: ['GET', 'POST'], path: MANAGE_URL, handler: (ctx) => (ctx.method === 'POST' ? writeSubmit(ctx) : managePage(ctx)) },
-  { methods: ['GET', 'HEAD'], path: '/admin/admin_users_rows', handler: rowsFragment }
+  { methods: ['GET', 'POST'], path: MANAGE_URL, handler: (ctx) => guard(ctx) || (ctx.method === 'POST' ? writeSubmit(ctx) : managePage(ctx)) },
+  { methods: ['GET', 'HEAD'], path: '/admin/admin_users_rows', handler: (ctx) => guard(ctx) || rowsFragment(ctx) }
 ];

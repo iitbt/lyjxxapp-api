@@ -161,7 +161,7 @@ export const SUPER_ONLY_WRITE_PATHS = [
   '/admin/media_manage_delete'
 ];
 
-// ② 页面函数内自查(仅超管, 但拦在页面里而不是分发前)
+// ② 仅超管(页面内自查; 分发层也会兜一道 —— 漏了页面自查也不会越权)
 export const ROUTE_SUPER_ONLY_WRITE_PATHS = [
   '/admin/admin_users', // 管理员账号增删/重置口令
   '/admin/fix_db'       // 一键补表(本次未迁移, 清单照旧保留)

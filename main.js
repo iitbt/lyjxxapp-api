@@ -26,7 +26,7 @@ import { settings } from './app/core/config.js';
 // 版本号(**唯一来源**): 与旧站 fastapi/main.py 的 APP_VERSION 同一处 ——
 // 状态页 / /health/ready / /apitest 展示它, 后台静态资源的 ?v= 缓存键也用它。
 // 改版本只改这一行; wrangler.toml 里不再有 API_VERSION, 也不再有第二份默认值。
-export const API_VERSION = '2.1.5';
+export const API_VERSION = '2.1.6';
 
 // ==== 路由装配(对应旧站 main.py 的 include_router 段) ====
 const router = createRouter();
@@ -47,6 +47,18 @@ export function routeTable() {
 // ==== 媒体直出(旧站是 StaticFiles 挂载) ====
 // 三个前缀都从 R2 读: /images/(包内图标) /news_uploads/(笔记素材) /avatar_uploads/(头像)
 const MEDIA_PREFIXES = ['/images/', '/news_uploads/', '/avatar_uploads/'];
+
+//: R2 对象没带 httpMetadata 时按扩展名兜底(上传工具传上去的素材常常没有 content-type)
+const CONTENT_TYPES = {
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp',
+  bmp: 'image/bmp', ico: 'image/x-icon', svg: 'image/svg+xml',
+  mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm'
+};
+
+function contentTypeOf(key) {
+  const text = String(key || '');
+  return CONTENT_TYPES[text.slice(text.lastIndexOf('.') + 1).toLowerCase()] || '';
+}
 
 // 解析单段 Range: 旧站 StaticFiles 支持 Range, 视频拖动/续播依赖它
 function rangeOf(header) {
@@ -73,6 +85,10 @@ async function serveObject(env, key, request) {
     if (!object) return new Response('not found', { status: 404 });
     const headers = new Headers();
     object.writeHttpMetadata(headers);
+    if (!headers.get('content-type')) {
+      const guess = contentTypeOf(key);
+      if (guess) headers.set('content-type', guess);
+    }
     headers.set('etag', object.httpEtag);
     headers.set('cache-control', 'public, max-age=604800');
     headers.set('accept-ranges', 'bytes');

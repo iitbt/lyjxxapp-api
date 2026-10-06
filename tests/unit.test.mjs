@@ -8,11 +8,20 @@ import { beijingNow, datePart, nowEpoch, toEpoch, windowStart } from '../app/cor
 import { assetUrl, iconAssetUrl, thumbKey } from '../app/core/media_scheme.js';
 import { sanitizeHtml } from '../app/core/sanitize.js';
 import { QUOTAS } from '../app/core/ratelimit.js';
+import { redactText } from '../app/core/logging.js';
 
 test('MD5 与标准向量一致(新用户 username 命名依赖它)', () => {
   assert.equal(md5Hex(''), 'd41d8cd98f00b204e9800998ecf8427e');
   assert.equal(md5Hex('abc'), '900150983cd24fb0d6963f7d28e17f72');
   assert.equal(md5Hex('The quick brown fox jumps over the lazy dog'), '9e107d9d372bb6826bd81d3542a419d6');
+});
+
+test('日志脱敏: 带引号的敏感值也必须打码', () => {
+  // SQL 里的字面量会被审计日志记进去, 这条漏了等于没脱敏(引号保留, 便于继续读日志)
+  assert.equal(redactText("password = 'abc123'"), "password = '***'");
+  assert.equal(redactText('token="xyz"'), 'token="***"');
+  assert.ok(!redactText("session: 'zzz'").includes('zzz'));
+  assert.equal(redactText('SELECT id FROM news'), 'SELECT id FROM news');
 });
 
 test('时间固定东八区且与库内字符串口径一致', () => {

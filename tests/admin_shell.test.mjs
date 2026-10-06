@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { handleAdmin } from '../app/admin/index.js';
+import { FAVICON_LINK } from '../app/core/html.js';
 import { ENTITIES } from '../app/admin/lib/entities.js';
 import { hashPassword } from '../app/admin/lib/password.js';
 import { listMeta, listShell } from '../app/admin/lib/partials.js';
@@ -99,6 +100,54 @@ test('写路径守卫: 普通管理员碰超管专属写入口被拒(403)', asyn
   const res = await post('/admin/banner_delete', { id: '1' }, env, cookie);
   assert.equal(res.status, 403);
   assert.ok((await res.text()).includes('仅超级管理员可执行'));
+});
+
+test('站点图标: 后台各页(含只摊 ctx 的页)都带同一份 <link rel="icon">', async () => {
+  const { env } = makeEnv({ role: 'super' });
+  const cookie = await loginCookie(env);
+  for (const path of ['/admin/dashboard', '/admin/settings', '/admin/system_info', '/admin/news_manage']) {
+    const res = await handleAdmin(new Request(`${HOST}${path}`, { headers: { origin: HOST, cookie } }), env);
+    assert.ok((await res.text()).includes(FAVICON_LINK), `${path} 缺少站点图标引用`);
+  }
+});
+
+test('写路径守卫: route_super 页面的写操作也由分发层拦(普通管理员 403)', async () => {
+  // 这类页面原本只靠页面自查; 管理员页漏了自查 → 任何登录账号都能增删管理员/重置口令
+  const { env } = makeEnv({ role: 'normal' });
+  const cookie = await loginCookie(env);
+  const res = await post('/admin/admin_users', {
+    add_admin: '1', username: 'intruder', password: 'password-1234', confirm_password: 'password-1234'
+  }, env, cookie);
+  assert.equal(res.status, 403);
+  assert.ok((await res.text()).includes('仅超级管理员可执行'));
+});
+
+test('权限: 管理员页(含列表)只给超管看, 普通管理员 403', async () => {
+  const normal = makeEnv({ role: 'normal' });
+  const normalCookie = await loginCookie(normal.env);
+  for (const path of ['/admin/admin_users', '/admin/admin_users_rows']) {
+    const res = await handleAdmin(new Request(`${HOST}${path}`, { headers: { origin: HOST, cookie: normalCookie } }), normal.env);
+    assert.equal(res.status, 403, `${path} 应拒绝普通管理员`);
+    assert.ok((await res.text()).includes('仅超级管理员可访问'));
+  }
+
+  const superEnv = makeEnv({ role: 'super' });
+  const superCookie = await loginCookie(superEnv.env);
+  const ok = await handleAdmin(new Request(`${HOST}/admin/admin_users`, { headers: { origin: HOST, cookie: superCookie } }), superEnv.env);
+  assert.equal(ok.status, 200);
+});
+
+test('数据库工具: JSON 体的 SQL 提交要能被解析(此前控制台永远报"请输入要执行的 SQL")', async () => {
+  const { env } = makeEnv({ role: 'super' });
+  env.ENABLE_SQL_TOOL = '1';
+  const cookie = await loginCookie(env);
+  const res = await handleAdmin(new Request(`${HOST}/admin/db_manage/exec`, {
+    method: 'POST',
+    headers: { origin: HOST, cookie, 'content-type': 'application/json' },
+    body: JSON.stringify({ sql: 'SELECT id FROM news LIMIT 1', confirm: '' })
+  }), env);
+  const body = await res.json();
+  assert.notEqual(body.msg, '请输入要执行的 SQL', 'JSON 体没被解析时会误判成"没填 SQL"');
 });
 
 test('写路径守卫: 没登记权限口径的写入口一律拒绝', async () => {

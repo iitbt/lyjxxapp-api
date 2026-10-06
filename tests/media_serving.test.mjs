@@ -65,6 +65,17 @@ test('媒体直出: Range 请求回 206 与 content-range(视频拖动依赖)', 
   assert.deepEqual(seen[2], { range: { suffix: 500 } });
 });
 
+test('媒体直出: R2 对象没带 content-type 时按扩展名兜底', async () => {
+  // 用 wrangler/rclone 传上去的素材常常没有 httpMetadata; 缺 content-type + nosniff 可能让浏览器不当图片渲染
+  const bare = () => ({ body: 'x', size: 1, httpEtag: '"e"', writeHttpMetadata() {} });
+  const { env } = makeEnv({ media: { get: bare } });
+  assert.equal((await get('/news_uploads/home/a.jpg', env)).headers.get('content-type'), 'image/jpeg');
+  assert.equal((await get('/news_uploads/v.mp4', env)).headers.get('content-type'), 'video/mp4');
+  // 猜不出的扩展名不给类型(运行时会给 text/plain, 关键是别乱猜成图片)
+  const unknown = (await get('/news_uploads/unknown.bin', env)).headers.get('content-type') || '';
+  assert.ok(!unknown.startsWith('image/'), '不能把未知扩展名猜成图片');
+});
+
 test('媒体直出: 未绑定 R2 回 502, 非 GET/HEAD 回 405', async () => {
   const missing = makeEnv();
   missing.env.STORAGE = undefined;

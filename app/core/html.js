@@ -1,8 +1,11 @@
 // 静态页外壳: 移动端可读、零外部依赖(不引 CDN, 免费套餐下也不额外耗流量)
 // 两套外壳都注入站点图标: pageShell/contentPage 是极简内容页, statusPage 是服务状态页(/)
+import { FAVICON_CONTENT_TYPE, FAVICON_HASH } from './favicon.js';
 
 /** 站点图标: 所有页面都必须带上(路径固定 /favicon.ico, 由入口 main.js 直出, 见 DEPLOY.md)。 */
-export const FAVICON_LINK = '<link rel="icon" href="/favicon.ico" type="image/x-icon">';
+// 带 ?v=<内容指纹>: 浏览器按 URL 记"本站有没有图标", 指纹变了才会丢掉旧的"没有"记忆重新取
+// type 与 favicon.js 的 content-type 一致(该文件实际是 PNG), 类型与字节必须对得上
+export const FAVICON_LINK = `<link rel="icon" href="/favicon.ico?v=${FAVICON_HASH}" type="${FAVICON_CONTENT_TYPE}">`;
 
 const STYLE = [
   '*{box-sizing:border-box}',

@@ -4,6 +4,7 @@ import test from 'node:test';
 
 import { handleAdmin } from '../app/admin/index.js';
 import { hashPassword } from '../app/admin/lib/password.js';
+import { FAVICON_LINK } from '../app/core/html.js';
 import { API_VERSION } from '../main.js';
 
 const HOST = 'https://admin.test';
@@ -111,7 +112,7 @@ test('后台: 登录页与旧站 login.html 同形(字段名/卡片/文案/版�
   assert.ok(html.includes('忘记密码请联系超级管理员重置'), '页脚提示与旧站一致');
   assert.ok(html.includes('狼牙极限运动笔记'), '品牌名取 site_name');
   assert.ok(html.includes(`系统版本 v${API_VERSION}`), '登录页版本号与后台同源');
-  assert.ok(html.includes('<link rel="icon" href="/favicon.ico" type="image/x-icon">'), '登录页也要带站点图标');
+  assert.ok(html.includes(FAVICON_LINK), '登录页也要带站点图标(与其他页同一份定义)');
 });
 
 test('后台: 口令正确则下发会话 Cookie 并跳控制面板', async () => {

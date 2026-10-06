@@ -134,6 +134,12 @@ function sqlConsole() {
     if (!form) return;
     var out = document.getElementById('sqlOut');
     var box = document.getElementById('sqlResult');
+    // 查询结果直接进 innerHTML, 必须转义: 库里的标题等字段带 <img onerror> 就能在超管的会话里执行
+    function esc(value) {
+      return String(value === null || value === undefined ? '' : value)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
     form.addEventListener('submit', function (event) {
       event.preventDefault();
       var sql = document.getElementById('sqlText').value.trim();
@@ -151,9 +157,9 @@ function sqlConsole() {
         var rows = (data.data && data.data.rows) || [];
         if (!rows.length) return;
         var keys = Object.keys(rows[0]);
-        var head = keys.map(function (k) { return '<th>' + k + '</th>'; }).join('');
+        var head = keys.map(function (k) { return '<th>' + esc(k) + '</th>'; }).join('');
         var body = rows.map(function (row) {
-          return '<tr>' + keys.map(function (k) { return '<td>' + String(row[k] === null ? '' : row[k]) + '</td>'; }).join('') + '</tr>';
+          return '<tr>' + keys.map(function (k) { return '<td>' + esc(row[k]) + '</td>'; }).join('') + '</tr>';
         }).join('');
         box.innerHTML = '<div class="table-responsive"><table class="table table-sm table-bordered mb-0"><thead><tr>'
           + head + '</tr></thead><tbody>' + body + '</tbody></table></div>';

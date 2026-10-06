@@ -75,7 +75,7 @@ npm run deploy
 ```bash
 npm run schema:local   # 本地 SQLite 建表(0001+0002+0003 中的前两个 + 0003 按需)
 npm run dev            # wrangler dev --local, 默认 http://127.0.0.1:8787
-npm test               # node --test, 163 条用例, 不需要网络与云账号
+npm test               # node --test, 169 条用例, 不需要网络与云账号
 ```
 
 手工验收（`wrangler dev` 起来后，把 33 条逐条打一遍；`/news/list` 要同时试带 `page` 与不带 `page`）：
@@ -141,6 +141,8 @@ node tools/diff_api.mjs --old https://api0.250036.xyz --new http://127.0.0.1:878
 12. **CORS**：`ALLOWED_ORIGINS` 默认 `*`（与迁移前一致，小程序不带 Origin 不受影响）；填域名后只回白名单内的 Origin，且不启用 `allow-credentials`（旧站也是 `False`）。
 13. **参数语义对齐**：`intOf` = 旧站 `intval`（`int(float(v))`、溢出夹 `±2^31`、非法回退）；`/news/list` 的 `page` 夹到 1000；`/content/get_notice_unread` 未登录回 **200 + `未登录` + 空数据**（旧站口径，不是 401）；请求体上限 5MB（旧站 `BODY_LIMIT_BYTES`），multipart 豁免。
 14. **R2 绑定名是 `STORAGE`**（`wrangler.toml` 的 `[[r2_buckets]].binding`）：代码只从 `core/config.js` 的 `storage` 取值，那里兼容早期的 `MEDIA`；改绑定名时只改 `wrangler.toml` 一个字段。
+15. **站点图标按真实格式下发**：`app/favicon.ico` 实际是 800×800 的 **PNG**（前 8 字节 PNG 魔数），所以响应与页面 `type=` 都声明 `image/png`；页面引用统一带 `?v=<内容指纹>`（`core/favicon.js` 的 `FAVICON_HASH`）—— 浏览器按**站点**记"有没有图标"，不带指纹就换不掉内联之前 404 留下的旧结论。
+16. **`route_super` 类写路径现在有两道闸**：`app/admin/index.js` 分发前按 `entities.js` 的清单拦一道（原先只靠页面自查，管理员页漏了自查 → 任何登录账号都能增删管理员/重置口令），页面内仍可再自查。
 
 ## 六、部署（你自己执行）
 

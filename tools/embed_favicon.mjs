@@ -18,11 +18,14 @@ const body = `// 站点图标(favicon.ico)的唯一来源 —— 与 fastapi/app
 // 内联成 base64 而不从 R2 取(每个页面、未登录都要能拿到); 生成方式: node tools/embed_favicon.mjs
 const FAVICON_BASE64 = '${base64}';
 
-//: 与旧站 StaticFiles 的 MIME 一致(实测线上 /favicon.ico 返回 image/x-icon)
-export const FAVICON_CONTENT_TYPE = 'image/x-icon';
+//: 声明真实类型(实测该文件是 PNG, 不是 ICO): 类型与字节不一致 + nosniff 会被挑剔的客户端直接丢掉
+export const FAVICON_CONTENT_TYPE = 'image/png';
 
 //: 内容指纹做 ETag: 图标不变则标签不变, 浏览器可走 304
 export const FAVICON_ETAG = '"${etag}"';
+
+//: 纯指纹(不带引号): 页面侧拼成 /favicon.ico?v=<指纹>, 让浏览器换掉"本站没有图标"的旧记忆
+export const FAVICON_HASH = '${etag}';
 
 let cached = null;
 

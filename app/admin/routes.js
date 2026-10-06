@@ -3,27 +3,10 @@
 // 数字一次 UNION 取回、趋势分开查、列表各一条 —— 一共 6 次 D1 往返, 免费套餐子请求预算内
 import { escapeHtml } from '../core/html.js';
 import { all, one } from '../core/db.js';
+import { beijingDaysAgo, beijingMidnight } from '../core/timeutil.js';
 import { adminLayout } from './lib/layout.js';
 import { migrationProgress } from './lib/nav.js';
 import { intOr, strOf } from './lib/utils.js';
-
-// 时间窗口按北京时间算(与对外接口的 stats.py 同口径): 直接用 UTC 方法读 +8 小时的时刻
-function chinaNow() {
-  return new Date(Date.now() + 8 * 3600 * 1000);
-}
-
-function chinaStamp(date) {
-  return date.toISOString().slice(0, 19).replace('T', ' ');
-}
-
-function chinaMidnight(daysAgo = 0) {
-  const now = chinaNow();
-  return chinaStamp(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - daysAgo)));
-}
-
-function chinaDaysAgo(days) {
-  return chinaStamp(new Date(Date.now() + 8 * 3600 * 1000 - days * 24 * 3600 * 1000));
-}
 
 // 纯 SVG 折线(零依赖, 与旧站的 sparkline 宏等价): 固定 7 个点, 最高点贴顶
 function sparkline(values) {
@@ -69,7 +52,9 @@ async function collectCounts(env, windows) {
 // 近 7 日每日新增(缺日期补 0): 用 substr 截日期, 两个驱动都支持(旧站踩过 SQLite 专有函数的坑)
 async function trend(env, table, dateColumn, extraWhere = '') {
   const days = [];
-  for (let offset = 6; offset >= 0; offset -= 1) days.push(chinaMidnight(offset).slice(0, 10));
+  for (let offset = 6; offset >= 0; offset -= 1) {
+    days.push(beijingMidnight(new Date(Date.now() - offset * 86400000)).slice(0, 10));
+  }
   const rows = await all(env,
     `SELECT substr(${dateColumn},1,10) AS d, COUNT(*) AS c FROM ${table} `
     + `WHERE ${dateColumn} >= ?${extraWhere} GROUP BY d ORDER BY d`,
@@ -103,10 +88,10 @@ function miniList(title, rows, renderRow, href) {
 export async function dashboardPage(ctx) {
   const progress = migrationProgress();
   const windows = {
-    today: chinaMidnight(0),
-    yesterday: chinaMidnight(1),
-    week: chinaDaysAgo(7),
-    prevWeek: chinaDaysAgo(14)
+    today: beijingMidnight(),
+    yesterday: beijingMidnight(new Date(Date.now() - 86400000)),
+    week: beijingDaysAgo(7),
+    prevWeek: beijingDaysAgo(14)
   };
   let counts = {};
   let trendUsers = [0, 0, 0, 0, 0, 0, 0];

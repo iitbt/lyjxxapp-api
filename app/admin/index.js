@@ -18,6 +18,9 @@ const CONTENT_TYPES = {
   js: 'application/javascript; charset=utf-8'
 };
 
+//: data:URL 资源(图标字体)的解码缓存 —— isolate 内存里只有一份(字体内容不随请求变)
+const decodedBinary = new Map();
+
 function htmlResponse(body, status = 200) {
   return new Response(body, { status, headers: { 'content-type': 'text/html; charset=utf-8' } });
 }
@@ -48,14 +51,18 @@ function serveStatic(path) {
   // 图标字体是二进制资源: 生成阶段包成了 data:URL, 这里解码回二进制原样返回
   // (字体内容不随代码变, 所以缓存一年; css/js 仍走 ?v= 版本号, 缓存一天)
   if (typeof value === 'string' && value.startsWith('data:')) {
-    const marker = value.indexOf(';base64,');
-    const mime = value.slice(5, marker);
-    const base64 = value.slice(marker + 8);
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-    return new Response(bytes, {
-      headers: { 'content-type': mime || 'application/octet-stream', 'cache-control': 'public, max-age=31536000' }
+    let hit = decodedBinary.get(key);
+    if (!hit) {
+      const marker = value.indexOf(';base64,');
+      const mime = value.slice(5, marker) || 'application/octet-stream';
+      const binary = atob(value.slice(marker + 8));
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+      hit = { mime, bytes };
+      decodedBinary.set(key, hit);
+    }
+    return new Response(hit.bytes, {
+      headers: { 'content-type': hit.mime, 'cache-control': 'public, max-age=31536000' }
     });
   }
   const ext = key.slice(key.lastIndexOf('.') + 1);
@@ -68,10 +75,23 @@ function serveStatic(path) {
   });
 }
 
-// 表单解析: 只处理 application/x-www-form-urlencoded(页面表单都是这种);
+// 表单解析: urlencoded(页面表单)与 JSON(数据库工具的 SQL 控制台)都认;
 // multipart 由具体处理器自己读(formData 只能读一次)
 async function readForm(request) {
   const type = (request.headers.get('content-type') || '').toLowerCase();
+  if (type.includes('application/json')) {
+    try {
+      const parsed = await request.json();
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+      const body = {};
+      for (const [key, value] of Object.entries(parsed)) {
+        if (['string', 'number', 'boolean'].includes(typeof value)) body[key] = String(value);
+      }
+      return body;
+    } catch (error) {
+      return {};
+    }
+  }
   if (!type.includes('application/x-www-form-urlencoded')) return {};
   try {
     const form = await request.formData();
@@ -154,10 +174,11 @@ export async function handleAdmin(request, env, options = {}) {
     error: url.searchParams.get('error') || ''
   };
 
-  // 写请求的权限口径: 分发前统一拦截(第一道闸, 清单见 lib/entities.js)
+  // 写请求的权限口径: 分发前统一拦截(清单见 lib/entities.js)
+  // route_super 也在这里拦: 只靠页面自查时, 漏一页就是一个越权口子(管理员增删/重置口令就漏过)
   if (WRITE_METHODS.has(method)) {
     const kind = classifyWritePath(path);
-    if (kind === 'super' && !session.isSuper) {
+    if ((kind === 'super' || kind === 'route_super') && !session.isSuper) {
       return htmlResponse(adminLayout(Object.assign({}, ctx, {
         title: '没有权限', currentPage: '', error: '该操作仅超级管理员可执行',
         content: '<div class="card-stat">你的账号不是超级管理员，这个操作被拒绝了。</div>'

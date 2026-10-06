@@ -10,8 +10,8 @@
 
 //: 命中这些键名的字段一律打码(与旧站 logging.py 的 _redact 同口径 + 补充后台用到的键)
 const REDACT_KEYS = /secret|token|password|passwd|pwd|authorization|cookie|session|appid|openid/i;
-//: 文本里以 `key=value` 形态出现的敏感值(token=xxx / secret: xxx)
-const REDACT_TEXT = /((?:secret|token|password|passwd|pwd|authorization|cookie|session)\s*[=:]\s*)([^\s,;&"']+)/gi;
+//: 文本里以 `key=value` 形态出现的敏感值(token=xxx / token="xxx" / secret: xxx)
+const REDACT_TEXT = /((?:secret|token|password|passwd|pwd|authorization|cookie|session)\s*[=:]\s*["']?)([^\s,;&"']+)/gi;
 
 const MASK = '***';
 

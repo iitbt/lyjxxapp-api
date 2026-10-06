@@ -1,6 +1,6 @@
 // 登录 / 登出 / 首次初始化: 与旧站同一套(账号在 D1 的 admin_users, 签名 Cookie 会话, 失败限速)
 // 页面结构/文案/交互对照旧站 templates/login.html: 卡片 + 品牌图标 + 输入组, 样式复用 bootstrap 与 admin.css
-import { escapeHtml } from '../../core/html.js';
+import { FAVICON_LINK, escapeHtml } from '../../core/html.js';
 import { settings } from '../../core/config.js';
 import {
   LOGIN_LIMIT, checkQuota, loginClearStatement, loginFailStatement, loginLockState, quotaStatement
@@ -59,7 +59,7 @@ function authDocument(options = {}) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escapeHtml(title)} - ${escapeHtml(cfg.siteName)}</title>
-<link rel="icon" href="/favicon.ico" type="image/x-icon">
+${FAVICON_LINK}
 <link href="/admin/static/vendor/bootstrap.min.css?v=${v}" rel="stylesheet">
 <link href="/admin/static/vendor/bootstrap-icons.min.css?v=${v}" rel="stylesheet">
 <link href="/admin/static/css/admin.css?v=${v}" rel="stylesheet">

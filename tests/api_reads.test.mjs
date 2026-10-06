@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { FAVICON_LINK } from '../app/core/html.js';
 import { TRUSTED_USER_ROW, USER_ROW, get, getJson, makeEnv } from './stub.mjs';
 
 const noteRow = {
@@ -53,7 +54,6 @@ test('站点图标: /favicon.ico 直出 app/favicon.ico 的字节, 不依赖 R2'
   const { env } = makeEnv();
   const res = await get('/favicon.ico', env);
   assert.equal(res.status, 200);
-  assert.equal(res.headers.get('content-type'), 'image/x-icon');
   assert.equal(res.headers.get('cache-control'), 'public, max-age=604800');
   assert.ok(res.headers.get('etag'), '标签稳定才能走 304');
 
@@ -61,15 +61,20 @@ test('站点图标: /favicon.ico 直出 app/favicon.ico 的字节, 不依赖 R2'
   const source = await readFile(new URL('../app/favicon.ico', import.meta.url));
   assert.equal(bytes.length, source.length, '图标字节数要与仓库里的文件一致');
   assert.deepEqual(Array.from(bytes.subarray(0, 8)), Array.from(source.subarray(0, 8)), '文件头要对得上');
+
+  // 声明的类型必须与真实字节一致(该文件其实是 PNG): 类型与字节不符 + nosniff, 挑剔的客户端会直接丢掉图标
+  const isPng = Buffer.from(bytes.subarray(0, 8)).toString('hex') === '89504e470d0a1a0a';
+  assert.equal(res.headers.get('content-type'), isPng ? 'image/png' : 'image/x-icon');
 });
 
-test('站点图标: 对外页与协议页都带 <link rel="icon">', async () => {
+test('站点图标: 所有页面都带同一个带指纹的 <link rel="icon">', async () => {
   const { env } = makeEnv({ db: (sql) => (/SELECT 1 AS c/i.test(sql) ? { c: 1 } : null) });
+  // 带 ?v=<内容指纹>: 浏览器按 URL 记"本站有没有图标", 不带指纹就换不掉旧的"没有"记忆
+  assert.match(FAVICON_LINK, /^<link rel="icon" href="\/favicon\.ico\?v=[0-9a-f]{8,}" type="image\/png">$/);
   for (const path of ['/', '/pages/terms', '/pages/privacy', '/pages/download']) {
     const res = await get(path, env);
     assert.equal(res.status, 200, `${path} 应能打开`);
-    assert.ok((await res.text()).includes('<link rel="icon" href="/favicon.ico" type="image/x-icon">'),
-      `${path} 缺少站点图标引用`);
+    assert.ok((await res.text()).includes(FAVICON_LINK), `${path} 缺少站点图标引用`);
   }
 });
 
