@@ -32,7 +32,7 @@
  * 用法:
  *   AdminImageUpload.uploadFile(file, 'cover', function (errMsg, data) {
  *     if (errMsg) { AdminImageUpload.reportError(errMsg, 结果容器元素); return; }
- *     // data.url 是数据库相对记录值(news_uploads/xx.png), 可直接回填并提交保存
+ *     // data.url 是数据库相对记录值(image/xx.png), 可直接回填并提交保存
  *   }, function (info) {                 // 可选: 进度回调
  *     AdminImageUpload.paintProgress(进度容器, info);   // 传 null 则用右下角浮层
  *   });
@@ -295,4 +295,96 @@
   };
 
   global.AdminImageUpload = AdminImageUpload;
+
+  // ---- [data-image-upload] 表单的自动绑定(整站唯一一份) ----
+  // 弹窗表单由 partials.js 渲染, 只带 data-* 说明"往哪填/怎么插"; 真正发请求的是这里。
+  // 用 capture 阶段监听: 先 preventDefault, 再让 admin-shell.js 的冒泡处理器看到 defaultPrevented
+  // (否则它会把这个表单当成"整页提交"而锁住按钮, 上传按钮就再也点不动了)。
+  if (global.__imageUploadBound) { return; }
+  global.__imageUploadBound = true;
+
+  /** mixed 弹窗用: 按扩展名判这个文件是图片还是视频(白名单取自 PRESETS, 不另抄一份)。 */
+  function kindOfFile(file) {
+    var ext = extOf(file && file.name);
+    return PRESETS.video.exts.indexOf(ext) >= 0 ? 'video' : 'image';
+  }
+
+  document.addEventListener('submit', function (e) {
+    var form = e.target;
+    if (!form || typeof form.hasAttribute !== 'function' || !form.hasAttribute('data-image-upload')) { return; }
+    e.preventDefault();
+    // 视频字段不渲染预览, 弹窗表单就没有 data-preview —— 空选择器会抛 SyntaxError, 所以"有才查"
+    var target = form.dataset.target ? document.querySelector(form.dataset.target) : null;
+    var preview = form.dataset.preview ? document.querySelector(form.dataset.preview) : null;
+    var result = form.parentNode ? form.parentNode.querySelector('[data-upload-result]') : null;
+    var progress = form.querySelector('[data-upload-progress]');
+    var fileInput = form.querySelector('input[type="file"]');
+    var declared = form.dataset.kind === 'video' ? 'video' : (form.dataset.kind === 'mixed' ? 'mixed' : 'image');
+    var file = fileInput && fileInput.files && fileInput.files[0];
+    if (!file) {
+      AdminImageUpload.reportError('请先选择要上传的文件', result);
+      return;
+    }
+    var fileKind = declared === 'mixed' ? kindOfFile(file) : declared;
+    var message = AdminImageUpload.validate(file, { kind: fileKind });
+    if (message) {
+      if (declared === 'mixed') {
+        message = '仅支持图片（' + PRESETS.image.exts.join(' / ').toUpperCase() + '）或视频（'
+          + PRESETS.video.exts.join(' / ').toUpperCase() + '）';
+      }
+      AdminImageUpload.reportError(message, result);
+      AdminImageUpload.paintProgress(progress, { phase: 'error', percent: 100, text: message });
+      AdminImageUpload.finishProgress(progress, false);
+      return;
+    }
+    if (result) { result.textContent = ''; }
+    // 视频永远走 purpose=video(后端据它决定目录与白名单); 图片用表单声明的 purpose(cover/content)
+    var purpose = fileKind === 'video' ? 'video' : (form.dataset.purpose || 'cover');
+    var busy = AdminImageUpload.beginBusy(form.querySelector('button[type="submit"]'));
+    AdminImageUpload.uploadFile(file, purpose, function (err, d) {
+      busy.end();
+      form.dataset.submitting = '';   // 清掉整页提交处理器留下的"提交中"标记
+      if (err) {
+        AdminImageUpload.reportError(err, result);
+        AdminImageUpload.paintProgress(progress, { phase: 'error', percent: 100, text: err });
+        AdminImageUpload.finishProgress(progress, false);
+        return;
+      }
+      AdminImageUpload.paintProgress(progress, { phase: 'done', percent: 100 });
+      if (form.dataset.insert === 'editor') {
+        // 正文用法: 不写输入框, 交给页面提供的插入回调(编辑器逻辑全站只有一份)
+        var insertMedia = global.MediaInsertFromUpload;
+        if (typeof insertMedia === 'function') {
+          insertMedia(d.url || '', fileKind);
+        } else {
+          AdminImageUpload.reportError('上传成功，但页面未提供插入回调（MediaInsertFromUpload），请改用「图片素材库/视频素材库」', result);
+          return;
+        }
+      } else if (target) {
+        // 接口回的是库内相对记录值, 直接写进字段等页面主表单保存; 预览按站点根路径加载
+        target.value = d.url || '';
+        target.classList.remove('is-invalid');
+        target.removeAttribute('aria-invalid');
+        if (preview) {
+          preview.src = '/' + String(d.url || '').replace(/^\/+/, '');
+          preview.classList.remove('d-none');
+        }
+      }
+      if (fileInput) { fileInput.value = ''; }   // 清空: 便于连续上传多个素材
+      if (result) {
+        result.className = 'mt-2 small text-success';
+        result.textContent = '上传成功: ' + d.url;
+      }
+      var modalEl = form.closest('.modal');
+      if (modalEl && global.bootstrap && global.bootstrap.Modal) {
+        var inst = global.bootstrap.Modal.getInstance(modalEl);
+        if (inst) { inst.hide(); }
+      }
+      if (global.a11yAnnounce) {
+        global.a11yAnnounce((fileKind === 'video' ? '视频' : '图片') + '上传成功');
+      }
+    }, function (info) {
+      AdminImageUpload.paintProgress(progress, info);
+    }, { kind: fileKind });
+  }, true);
 })(window);

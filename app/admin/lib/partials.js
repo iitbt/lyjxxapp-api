@@ -2,6 +2,7 @@
 // 这边没有模板引擎, 所以每个宏就是"返回 HTML 字符串的函数"
 import { escapeHtml } from '../../core/html.js';
 import { assetUrl } from '../../core/media_scheme.js';
+import { MEDIA_PREFIXES } from '../../core/storage.js';
 
 export function backButton(url, label = '返回') {
   return `<a class="btn btn-outline-secondary btn-sm" href="${escapeHtml(url)}">`
@@ -39,7 +40,7 @@ export function imageUploadField(options = {}) {
   const name = options.name;
   const kind = options.mediaKind === 'video' ? 'video' : 'image';
   const placeholder = kind === 'video'
-    ? '填写本站相对路径（如 news_uploads/motorcycle/xxx.mp4），或点右侧「本地上传」'
+    ? '填写本站相对路径（如 video/video_xxx.mp4），或点右侧「本地上传」'
     : '填写图片直链，或点击右侧「本地上传」';
   const invalid = options.errorField === name;
   const input = `<input type="text" class="form-control${invalid ? ' is-invalid' : ''}" name="${escapeHtml(name)}"`
@@ -113,7 +114,9 @@ export function imageUploadModal(options = {}) {
 
 // 素材库弹窗: 全后台只有一个(打开它的按钮用 data-media-* 描述行为)
 export function mediaLibraryModal() {
-  return `<div class="modal fade" id="mediaLibraryModal" tabindex="-1" aria-labelledby="mediaLibraryModalLabel">
+  // data-media-prefixes: 素材目录清单下发到前端(手工填路径时判断"写全目录没有"), 真值在 core/storage.js
+  return `<div class="modal fade" id="mediaLibraryModal" tabindex="-1" aria-labelledby="mediaLibraryModalLabel"
+     data-media-prefixes="${escapeHtml(MEDIA_PREFIXES.join(','))}">
   <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
     <div class="modal-header">
       <h6 class="modal-title" id="mediaLibraryModalLabel">从素材库选择</h6>
@@ -140,7 +143,7 @@ export function mediaLibraryModal() {
       <hr>
       <label class="form-label small" for="mediaLibraryManual">或手工填写素材路径</label>
       <div class="input-group">
-        <input type="text" class="form-control" id="mediaLibraryManual" placeholder="news_uploads/xxx.png 或 news_uploads/motorcycle/xxx.mp4">
+        <input type="text" class="form-control" id="mediaLibraryManual" placeholder="image/xxx.png 或 video/xxx.mp4">
         <button type="button" class="btn btn-outline-primary" id="mediaLibraryManualInsert">插入</button>
       </div>
     </div>

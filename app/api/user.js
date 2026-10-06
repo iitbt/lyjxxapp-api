@@ -3,6 +3,7 @@
 import { fail, ok } from '../core/response.js';
 import { all, idList, intOf, one, run, str } from '../core/db.js';
 import { assetUrl, mediaBase, putObject } from '../core/media_scheme.js';
+import { AVATAR_PREFIX } from '../core/storage.js';
 import { settings } from '../core/config.js';
 import { AUTH_MESSAGES, currentUser, tokenOf } from './helpers.js';
 import { MAX_NICKNAME_LEN } from './schemas.js';
@@ -307,7 +308,8 @@ export function registerUserRoutes(router) {
     }
     if (!looksLikeImage(new Uint8Array(bytes))) return fail(400, '文件内容不是有效图片');
 
-    const key = `avatar_uploads/avatar_${user.id}_${nowEpoch()}.${ext}`;
+    // 头像落 avatar/ 目录(历史头像仍在 avatar_uploads/, 两边都能直出, 老数据不用迁)
+    const key = `${AVATAR_PREFIX}avatar_${user.id}_${nowEpoch()}.${ext}`;
     try {
       await putObject(env, key, bytes, file.type || `image/${ext}`);
       await run(env, 'UPDATE users SET avatar=? WHERE id=?', key, user.id);

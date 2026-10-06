@@ -8,14 +8,14 @@
 //      否则会出现"删素材 → 恢复回收站 → 裂图"的静默事故。
 //
 // 平台差异(已在 README「已知差异」声明):
-//   · 素材来源: 旧站 os.walk 本地目录 → 这里 R2 list(前缀 news_uploads/);
+//   · 素材来源: 旧站 os.walk 本地目录 → 这里 R2 list(新目录 image//video/ + 历史目录 news_uploads/);
 //   · 15 秒扫描短缓存: Worker 没有进程内状态, 不实现(每次真扫, 但对 R2 是读元信息, 成本低);
 //   · 不做上传/重命名/转码(与旧站一致: 上传入口在字段旁, 重命名要同步改引用风险最高)。
 import { escapeHtml } from '../../core/html.js';
 import { settings } from '../../core/config.js';
 import { all } from '../../core/db.js';
 import { fmtBytes } from '../../core/overview.js';
-import { NEWS_PREFIX, listNewsMedia, mediaUsage, removeMediaFile, relPathsIn, normRel } from '../../core/storage.js';
+import { MEDIA_PREFIXES, listNewsMedia, mediaUsage, removeMediaFile, relPathsIn, normRel } from '../../core/storage.js';
 import { adminLayout } from '../lib/layout.js';
 import { backButton, deleteConfirmCard, pageHeader } from '../lib/partials.js';
 import { auditLog, buildListUrl, fmtDatetime, strOf, urlenc } from '../lib/utils.js';
@@ -34,7 +34,7 @@ const SORT_CHOICES = [
   ['name_asc', '文件名 A→Z']
 ];
 
-//: 其它引用来源(表, 列, 中文名) —— 只列"可能装 news_uploads/... 的列"(与旧站 _OTHER_REF_SOURCES 一致)
+//: 其它引用来源(表, 列, 中文名) —— 只列"可能装素材相对路径的列"(与旧站 _OTHER_REF_SOURCES 一致)
 const OTHER_REF_SOURCES = [
   ['banner_images', 'image_url', '轮播图'],
   ['motorcycle_trips', 'poster', '摩旅精选封面'],
@@ -90,13 +90,15 @@ export async function scanReferences(env, only = null) {
     }
   };
 
-  const like = `%${NEWS_PREFIX}%`;
+  // 粗筛: 任一素材目录命中就取回(真正的判定在 relPathsIn 的归一化等值比较)
+  const likeSql = MEDIA_PREFIXES.map(() => 'LIKE ?').join(' OR ');
+  const likeArgs = MEDIA_PREFIXES.map((prefix) => `%${prefix}%`);
   // 笔记: 三个来源列一起取(deleted_at 两种状态都查 —— 回收站里的笔记同样算引用)
   const newsRows = await all(
     env,
     'SELECT id,title,image,video_url,content,deleted_at FROM news '
-    + 'WHERE image LIKE ? OR video_url LIKE ? OR content LIKE ? LIMIT 2000',
-    like, like, like
+    + `WHERE image ${likeSql} OR video_url ${likeSql} OR content ${likeSql} LIMIT 2000`,
+    ...likeArgs, ...likeArgs, ...likeArgs
   ).catch(() => []);
   for (const row of newsRows) {
     const recycle = row.deleted_at !== null && row.deleted_at !== undefined && strOf(row.deleted_at) !== '';
@@ -106,8 +108,9 @@ export async function scanReferences(env, only = null) {
   }
 
   for (const [table, column, label] of OTHER_REF_SOURCES) {
-    const rows = await all(env, `SELECT id, "${column}" AS value FROM "${table}" WHERE "${column}" LIKE ? LIMIT 500`, like)
-      .catch(() => []);
+    const rows = await all(env,
+      `SELECT id, "${column}" AS value FROM "${table}" WHERE "${column}" ${likeSql} LIMIT 500`,
+      ...likeArgs).catch(() => []);
     for (const row of rows) record(row.value, label, row.id, '', false);
   }
   return hits;
@@ -132,15 +135,20 @@ function denied(ctx) {
 }
 
 async function thumbUsage(env) {
-  try {
-    const listed = await settings(env).storage.list({ prefix: `${NEWS_PREFIX}_thumb/`, limit: 1000 });
-    const objects = (listed && listed.objects) || [];
-    let bytes = 0;
-    for (const object of objects) bytes += Number(object.size) || 0;
-    return { count: objects.length, bytes };
-  } catch (error) {
-    return { count: 0, bytes: 0 };
+  let count = 0;
+  let bytes = 0;
+  // 缩略图目录随原图走, 新目录与历史目录都要统计; 某个目录列举失败只少算那部分, 不让整页失败
+  for (const prefix of MEDIA_PREFIXES) {
+    try {
+      const listed = await settings(env).storage.list({ prefix: `${prefix}_thumb/`, limit: 1000 });
+      const objects = (listed && listed.objects) || [];
+      count += objects.length;
+      for (const object of objects) bytes += Number(object.size) || 0;
+    } catch (error) {
+      // 忽略: 上面已说明口径
+    }
   }
+  return { count, bytes };
 }
 
 async function listPage(ctx) {

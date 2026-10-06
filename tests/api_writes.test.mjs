@@ -161,7 +161,7 @@ test('头像上传: 非图片扩展名 400, 正常 multipart 落 R2 并回绝对
   form.append('avatar', new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 1, 2, 3])], 'a.jpg', { type: 'image/jpeg' }));
   const ok = await (await (await import('./stub.mjs')).request('/user/upload_avatar', { method: 'POST', env, body: form, headers: {} })).json();
   assert.equal(ok.msg, '头像上传成功');
-  assert.match(ok.data.avatar_url, /^https:\/\/media\.test\/avatar_uploads\/avatar_7_\d+\.jpg$/);
+  assert.match(ok.data.avatar_url, /^https:\/\/media\.test\/avatar\/avatar_7_\d+\.jpg$/, '头像落 avatar/ 目录');
 });
 
 test('昵称状态后缀: 半角括号, 注销/恢复都基于真实原昵称重算', async () => {

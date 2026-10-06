@@ -208,26 +208,50 @@ test('上传: 内容嗅探拦掉伪装的图片, 通过后写 R2 并回相对地
   }), env);
   const okBody = await okRes.json();
   assert.equal(okBody.success, true);
-  assert.match(okBody.url, /^news_uploads\/cover_\d+\.png$/);
+  assert.match(okBody.url, /^image\/cover_\d+\.png$/, '图片素材落 image/ 目录');
   assert.equal(state.puts.length, 1);
 });
 
-test('素材库: 按扩展名分类列举 R2 对象并给可接受格式', async () => {
+test('上传: 视频素材落 video/ 目录, 图片目录不混进视频', async () => {
+  const { env, state } = makeAdminEnv();
+  const cookie = await loginCookie(env);
+  const form = new FormData();
+  form.append('purpose', 'video');
+  // ISO-BMFF: ftyp 品牌
+  const mp4 = new Uint8Array([0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d]);
+  form.append('file', new File([mp4], 'video_x.mp4', { type: 'video/mp4' }));
+  const body = await (await handleAdmin(new Request(`${HOST}/admin/image_upload`, {
+    method: 'POST', headers: { cookie }, body: form
+  }), env)).json();
+  assert.equal(body.success, true);
+  assert.match(body.url, /^video\/video_\d+\.mp4$/, '视频素材落 video/ 目录');
+  assert.deepEqual(state.puts, [body.url]);
+});
+
+test('素材库: 新目录与历史目录一起列, 缩略图/头像/异类都不混进来', async () => {
   const { env } = makeAdminEnv({
     mediaObjects: [
+      { key: 'image/new.png', size: 30, uploaded: '2026-10-05T00:00:00Z' },
       { key: 'news_uploads/a.png', size: 10, uploaded: '2026-10-01T00:00:00Z' },
+      { key: 'video/new.mp4', size: 40, uploaded: '2026-10-05T00:00:00Z' },
       { key: 'news_uploads/moto.mp4', size: 20, uploaded: '2026-10-02T00:00:00Z' },
-      { key: 'news_uploads/_thumb/480/a.webp', size: 5, uploaded: '2026-10-01T00:00:00Z' }
+      { key: 'news_uploads/_thumb/480/a.webp', size: 5, uploaded: '2026-10-01T00:00:00Z' },
+      { key: 'avatar/avatar_7_1.png', size: 7, uploaded: '2026-10-03T00:00:00Z' }
     ]
   });
   const cookie = await loginCookie(env);
   const images = await (await get('/admin/media_library?kind=image', env, cookie)).json();
   assert.equal(images.success, true);
-  assert.deepEqual(images.items.map((item) => item.name), ['a.png'], '缩略图不算素材、视频不混进图片');
+  assert.deepEqual(images.items.map((item) => item.name), ['new.png', 'a.png'],
+    '新目录在前(按时间倒序)、缩略图不算素材、视频不混进图片、头像不参与素材库');
+  // 前端靠这两个字段画缩略图与目录徽章, 缺了会"列表里没有图"
+  assert.deepEqual(images.items.map((item) => item.kind), ['image', 'image']);
+  assert.deepEqual(images.items.map((item) => item.dir), ['image', 'news_uploads']);
   assert.ok(images.accept.includes('png'));
 
   const videos = await (await get('/admin/media_videos', env, cookie)).json();
-  assert.deepEqual(videos.items.map((item) => item.name), ['moto.mp4']);
+  assert.deepEqual(videos.items.map((item) => item.name), ['new.mp4', 'moto.mp4']);
+  assert.deepEqual(videos.items.map((item) => item.dir), ['video', 'news_uploads']);
 });
 
 test('删除确认页: 用户 kind 摊开级联影响面', async () => {

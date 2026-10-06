@@ -22,9 +22,13 @@ export function makeAdminEnv(options = {}) {
     ADMIN_SESSION_SECRET: 'test-secret',
     ADMIN_ACCESS_MODE: 'access',
     MEDIA_BASE: 'https://media.test',
-    // R2 桩(绑定名与 wrangler.toml 一致): list 回 options.mediaObjects, put 记录 key, head 由 options.mediaHead 决定
+    // R2 桩(绑定名与 wrangler.toml 一致): list 按 prefix 过滤 options.mediaObjects, put 记录 key, head 由 options.mediaHead 决定
     STORAGE: {
-      list: async () => ({ objects: options.mediaObjects || [] }),
+      list: async (opts) => {
+        const prefix = String((opts && opts.prefix) || '');
+        const all = options.mediaObjects || [];
+        return { objects: all.filter((object) => String(object.key || '').startsWith(prefix)) };
+      },
       head: async (key) => (options.mediaHead ? options.mediaHead(key) : null),
       get: async () => null,
       put: async (key) => { state.puts.push(key); return {}; },

@@ -27,9 +27,10 @@ test('R2 绑定名与 wrangler.toml 一致(STORAGE), 旧名 MEDIA 仍可用', ()
   assert.equal(settings({}).storage, null, '没绑定时要显式为空, 不要悄悄回退到 undefined');
 });
 
-test('媒体直出: 三个素材前缀都走 R2, 带 etag 与长缓存', async () => {
+test('媒体直出: 新目录与历史目录都能直出, 带 etag 与长缓存', async () => {
   const body = 'IMG-BYTES';
-  const keys = ['images/logo.png', 'news_uploads/home/a.jpg', 'avatar_uploads/u.png'];
+  const keys = ['images/logo.png', 'image/a.png', 'video/v.mp4', 'avatar/u.png',
+    'news_uploads/home/a.jpg', 'avatar_uploads/u.png'];
   const { env } = makeEnv({ media: { get: (key) => (keys.includes(key) ? objectOf(body) : null) } });
   for (const key of keys) {
     const res = await get(`/${key}`, env);

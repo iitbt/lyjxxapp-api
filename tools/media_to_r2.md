@@ -6,8 +6,9 @@
 
 ## 一、原则
 
-- **R2 key 与数据库里存的相对路径保持一致**（`news_uploads/xxx.jpg`、`avatar_uploads/xxx.png`），这样库里字段一个都不用改。
-- 三个前缀（`news_uploads/`、`avatar_uploads/`、`images/`）全部公开，走自定义域直读。
+- **R2 key 与数据库里存的相对路径保持一致**（历史是 `news_uploads/xxx.jpg`、`avatar_uploads/xxx.png`），这样库里字段一个都不用改。
+- 新上传按类型落 `image/`（图片）、`video/`（视频）、`avatar/`（头像）；Worker 侧全部直出（含历史目录），见 `DEPLOY.md` 的「素材目录」节。
+- 三个历史前缀（`news_uploads/`、`avatar_uploads/`、`images/`）全部公开，走自定义域直读。
 - 派生文件（缩略图）**必须在旧环境预生成**：Workers 里没有 Pillow，无法在线生成。
 
 ## 二、步骤
@@ -16,7 +17,7 @@
 
    ```bash
    cd fastapi
-   python tools/make_cover_thumbs.py        # 宽度 480 / 800, 输出 news_uploads/_thumb/<宽度>/<名>.webp
+   python tools/make_cover_thumbs.py        # 宽度 480 / 800, 输出 <素材目录>/_thumb/<宽度>/<名>.webp
    ```
 
 2. 建立 bucket 与公开域（公开域已定：`storage.250036.xyz`）：

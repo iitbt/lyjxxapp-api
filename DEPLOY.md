@@ -232,7 +232,7 @@ DELETE FROM admin_users;   -- 清掉全部管理员(通常只有 1 个)
 | 系统 | 管理员设置（改昵称/邮箱/口令）、系统信息 | 改口令后强制重新登录 |
 | **不迁移** | 数据库工具、素材库治理页（查占用/查引用/删素材） | 菜单里标「未迁移」并说明原因，用 D1 控制台代替 |
 
-上传说明：笔记封面/正文插图/轮播图/专题封面走 `POST /admin/image_upload` 写入 **R2** 的 `news_uploads/` 前缀，
+上传说明：笔记封面/正文插图/轮播图/专题封面走 `POST /admin/image_upload` 写入 **R2**（图片 `image/`、视频 `video/`；历史素材仍在 `news_uploads/`，两边都能读），
 视频走同一入口的 `purpose=video` 分支（按文件头嗅探类型，不只看扩展名）。
 **Worker 不生成缩略图**（没有 Pillow），列表按"有则用、无则回退原图"。
 
@@ -363,9 +363,9 @@ jobs:
 1. **先预生成缩略图**（Workers 没有 Pillow，不能在线生成）：在旧后端环境跑现成工具
    ```powershell
    cd ..\..\fastapi
-   python tools\make_cover_thumbs.py     # 产出 news_uploads/_thumb/480|800/<名>.webp
+   python tools\make_cover_thumbs.py     # 产出 <素材目录>/_thumb/480|800/<名>.webp(目录随原图走, 见下)
    ```
-2. **上传时保持 key = 库内相对路径**：`news_uploads/...`、`avatar_uploads/...`（数据库字段一个字都不用改）。
+2. **上传时保持 key = 库内相对路径**：历史素材仍是 `news_uploads/...`、`avatar_uploads/...`，新上传的走 `image/`、`video/`、`avatar/`（数据库字段一个字都不用改，见下节「素材目录」）。
 3. **`app/images` 必须传到 `images/` 前缀**（Worker 的 `/images/*` 从这里读，不传则「我的」页菜单图标 404；**站点图标 `/favicon.ico` 不在这里** —— 它已内联进 Worker，见下节）：
    ```powershell
    wrangler r2 object put lyjxxapp-r2/images/user.jpg --file=..\..\fastapi\app\images\user.jpg
@@ -375,14 +375,33 @@ jobs:
 
 ---
 
+## 素材目录（新目录 + 历史目录共存）
+
+| 类型 | 新上传落哪 | 历史素材还在哪 | 谁在写 |
+|---|---|---|---|
+| 笔记封面/正文插图/轮播图/精选图标 | `image/` | `news_uploads/` | 后台「本地上传」→ `POST /admin/image_upload`（purpose=cover/content） |
+| 视频（笔记视频、专题视频） | `video/` | `news_uploads/` | 同上（purpose=video） |
+| 小程序头像 | `avatar/` | `avatar_uploads/` | `POST /user/upload_avatar` |
+
+口径（真值在 `app/core/storage.js`，只有这一处定义）：
+
+- **列举/引用判定同时覆盖新目录与历史目录**（`MEDIA_PREFIXES`）：素材库弹窗、素材占用统计、素材治理页的"是否被引用"都把两个目录算进来，所以老素材不会"消失"，新素材也不会被误判成未引用。
+- **Worker 直出同时覆盖新旧路径**（`SERVED_PREFIXES`）：`/image/*`、`/video/*`、`/avatar/*`、`/news_uploads/*`、`/avatar_uploads/*`、`/images/*`，都带 `etag` + `cache-control` + `accept-ranges`（Range 回 206）。
+- **数据库里存的是相对路径，一个字段都不用改**：历史值（`news_uploads/…`）继续有效，新值（`image/…`）由 `MEDIA_BASE` 拼绝对地址下发。**不需要迁移数据、也不需要搬动 R2 对象**。
+- **缩略图目录随原图走**：`image/a.png` → `image/_thumb/480/a.webp`，历史 `news_uploads/a.png` → `news_uploads/_thumb/480/a.webp`。Cloudflare 侧**只读不生成**（无 Pillow）：缩略图由离线工具产出（`fastapi/tools/make_cover_thumbs.py`），缺失时列表与小程序自动回退原图。
+  > ⚠️ **待确认/需同步**：该离线工具的缩略图路径规则在旧站 `fastapi/app/core/storage.py::ensure_news_cover_thumb` 里，若要给 `image/` 下的新素材生成缩略图，需要把那份规则改成"目录随原图走"（与 `core/storage.js` 的 `thumbKeyOf` 一致），否则新素材不会命中缩略图（只是回退原图，不影响功能）。
+- **上传接口的字段与口径**：`file`（或历史名 `image`）+ `purpose`（`cover` / `content` / `video`），图片 8MB、视频 64MB，并按**文件头**判类型（改扩展名蒙不过去）。
+
+---
+
 ## 素材对外域名（`MEDIA_BASE`）怎么选
 
-库里只存**相对路径**（`news_uploads/home/a.jpg`），下发时由 Worker 拼上 `MEDIA_BASE`。两种填法都能用：
+库里只存**相对路径**（历史是 `news_uploads/home/a.jpg`，新上传是 `image/a.png`），下发时由 Worker 拼上 `MEDIA_BASE`。两种填法都能用：
 
 | 填法 | 值 | 谁在服务素材 | 什么时候选它 |
 |---|---|---|---|
 | **A. R2 公开域（推荐）** | `https://storage.250036.xyz`（A3 建的自定义域） | 直接由 R2 边缘返回 | 默认。**不吃 Worker 请求额度、不经 Worker CPU**；视频 Range/拖动由 R2 原生支持；缓存命中率最高 |
-| B. Worker 域名 | `https://lyjx.250036.xyz` | Worker 从 R2 读出来再返回 | 想少维护一个域名时用。`/news_uploads/*`、`/avatar_uploads/*`、`/images/*` 三个前缀都已由 Worker 直出（带 `etag`、`cache-control: max-age=604800`、`accept-ranges`，Range 回 **206**），与旧站 `StaticFiles` 挂载同口径 |
+| B. Worker 域名 | `https://lyjx.250036.xyz` | Worker 从 R2 读出来再返回 | 想少维护一个域名时用。`/image/*`、`/video/*`、`/avatar/*`、`/news_uploads/*`、`/avatar_uploads/*`、`/images/*` 都已由 Worker 直出（带 `etag`、`cache-control: max-age=604800`、`accept-ranges`，Range 回 **206**），与旧站 `StaticFiles` 挂载同口径 |
 
 要点：
 
@@ -436,8 +455,9 @@ curl.exe -s https://lyjx.250036.xyz/admin/login | Select-String 'rel="icon"'
 | `GET /favicon.ico` | **200** + `content-type: image/png` + `cache-control: public, max-age=604800`（内联字节直出，不需要往 R2 传） |
 | 任意页面 `view-source` 或 `curl` 看 `<head>` | 都有同一串 `<link rel="icon" href="/favicon.ico?v=<指纹>" type="image/png">`（状态页 / 协议页 / 登录页 / 后台各页都一致） |
 | `GET /images/<已上传的图>` | **200** + `etag` + `cache-control: public, max-age=604800` + `accept-ranges: bytes` |
-| `GET /news_uploads/home/<已上传的图>`（或 `/avatar_uploads/...`） | 同上；带 `Range: bytes=0-1023` 时回 **206** + `content-range`（视频拖动/续播靠它） |
-| `GET /news_uploads/<不存在的对象>` | **404**；R2 绑定名写错时是 **502**（说明 `wrangler.toml` 与桶没对上） |
+| `GET /image/<新上传的图>`、`GET /video/<新上传的视频>`、`GET /avatar/<头像>` | 同上；历史路径 `/news_uploads/...`、`/avatar_uploads/...` 同样能直出（带 `Range: bytes=0-1023` 时回 **206** + `content-range`，视频拖动/续播靠它） |
+| `GET /image/<不存在的对象>` | **404**；R2 绑定名写错时是 **502**（说明 `wrangler.toml` 与桶没对上） |
+| 后台「本地上传」选一张图/一段视频 → 点上传 | 进度条走完并提示 `上传成功: image/xxx.png`（视频为 `video/xxx.mp4`），字段被回填；素材库弹窗里能立刻看到它（带目录徽章） |
 | `GET /?format=json` | `{"name":"狼牙极限运动笔记API","description":"本服务为…数据服务。","status":"运行中","server_time"}`（name/description/status 三值与旧站逐字一致） |
 | `GET /health` | **裸结构**（无 code 包装）`{"status":"ok","service":"狼牙极限运动笔记API","uptime_s":0,"server_time",checks:{database,media}}` |
 | `GET /health/ready` | **裸结构**（无 code 包装）`{"status":"ready",version,server_time,checks}`；D1 或 R2 不通时 **503** 且 `status:"starting"` |
@@ -484,6 +504,9 @@ curl.exe -s https://lyjx.250036.xyz/admin/login | Select-String 'rel="icon"'
 | 小程序请求被微信拦 | 服务器域名白名单没加 | 加 `lyjx.250036.xyz` 与 `storage.250036.xyz`（旧线路 `api0.250036.xyz` 一起留着，回滚要用） |
 | 访问 `/admin` 看到"后台未就绪" | 没配 `ADMIN_SESSION_SECRET` | 见 A8 第 2 步（加密变量），配完重新部署 |
 | 图标不显示，但 `curl -I /favicon.ico` 是 200 | 浏览器按**站点**记着旧的"没有图标"（本站此前 404 过；浏览器不因服务端变好就重取） | 本版页面引用已带 `?v=<指纹>`，重开页面即生效；仍不显示看「站点图标」节的四步（强刷 / 关标签页 / 清站点数据 / 隐身窗口） |
+| 点「上传」没反应（页面刷新或什么都不发生） | 上传表单靠 `static/js/image_upload.js` 认领并改走 XHR；该脚本是**生成物里的一份**，只改源文件不重跑 `tools/embed_admin_assets.mjs` 就不会生效 | 重跑 `node tools/embed_admin_assets.mjs` 并升 `main.js` 的 `API_VERSION` 后重新部署 |
+| 素材库弹窗里看不到刚上传的图 | 列举只认 `image/`、`video/` 与历史 `news_uploads/`；若 R2 里对象被放到别的目录（例如手工 `r2 object put` 时写错前缀）就不会出现 | 按 `库内相对路径 = R2 key` 重传；目录清单见「素材目录」节 |
+| 素材库/编辑页里的缩略图不显示 | 缩略图要离线生成（Cloudflare 侧不生成），且新目录（`image/`）的缩略图规则需与 `core/storage.js` 的 `thumbKeyOf` 一致 | 按「素材目录」节的说明跑离线工具；没有缩略图只是回退原图，不影响功能 |
 | 后台"执行 SQL"一直提示"请输入要执行的 SQL" | 前端发的是 JSON，而入口只解析 urlencoded（2.1.6 已修） | 升级部署到 2.1.6+ |
 | 普通管理员能打开"管理员管理"或提交成功 | 该页原本只在页面内自查超管（2.1.6 起分发层也拦 `route_super`） | 升级部署到 2.1.6+；普通管理员会看到 403 |
 | `/admin/bootstrap` 说"已经初始化过" | `admin_users` 里已有账号 | 直接去 `/admin/login`；**忘了口令**就 `DELETE FROM admin_users;` 后重新 bootstrap（A8 有完整步骤） |

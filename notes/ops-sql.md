@@ -122,4 +122,4 @@ ON CONFLICT(id) DO UPDATE SET
 - 时间统一 `datetime('now','+8 hours')`（全站东八区），不要写 `localtime`。
 - 只改这 8 张配置表；`news`、`users`、`news_likes` 等是**小程序产生的数据**，不要手工改。
 - 当前设计**不加 edge 缓存**，所以改完立即生效；若以后加了缓存，改完必须清对应缓存（届时补进本小抄）。
-- 图片字段填**站内相对路径**（如 `news_uploads/home/x.png`）最稳；填完整 URL 也能用，但要保证域名与 `media` 域一致。
+- 图片字段填**站内相对路径**最稳（后台后台上传得到的是 `image/x.png`；历史素材仍是 `news_uploads/home/x.png`，两者都有效）；填完整 URL 也能用，但要保证域名与素材域一致。

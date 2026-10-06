@@ -2,6 +2,7 @@
 // 关键差异: Workers 没有 Pillow, 上传时**不生成缩略图** —— 列表按"有则用、无则回退原图"的口径自动降级
 // 白名单与大小上限照旧站 core/storage.py: 图片 8MB / 视频 64MB, 并且**不看扩展名只看内容**(前端 accept 可绕过)
 import { settings } from '../../core/config.js';
+import { IMAGE_PREFIX, VIDEO_PREFIX, listNewsMedia, thumbKeyOf } from '../../core/storage.js';
 
 export const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
 export const VIDEO_EXTS = ['mp4', 'mov', 'm4v', 'webm'];
@@ -11,9 +12,6 @@ export const MAX_VIDEO_BYTES = 64 * 1024 * 1024;
 // 素材库能"列出来"的扩展名(比上传白名单宽: 历史素材里有 bmp/avi 这类)
 export const LISTABLE_IMAGE_EXTS = IMAGE_EXTS.concat(['bmp']);
 export const LISTABLE_VIDEO_EXTS = VIDEO_EXTS.concat(['mkv', 'ts', 'm3u8', '3gp', 'avi', 'flv', 'wmv', 'f4v']);
-
-const NEWS_PREFIX = 'news_uploads/';
-const THUMB_WIDTH = 480;
 
 export function extOf(name) {
   const text = String(name || '').toLowerCase();
@@ -85,9 +83,10 @@ export async function saveUpload(env, options) {
     return reject(isVideoPurpose ? '文件内容不是有效视频，请重新上传' : '文件内容不是有效图片，请重新上传');
   }
 
+  // 图片落 image/, 视频落 video/(历史素材仍在 news_uploads/, 两边都能直出与列举)
   const prefix = isVideoPurpose ? 'video' : ({ cover: 'cover', content: 'content' }[purpose] || 'img');
   const name = `${prefix}_${Date.now()}.${ext}`;
-  const key = `${NEWS_PREFIX}${name}`;
+  const key = `${isVideoPurpose ? VIDEO_PREFIX : IMAGE_PREFIX}${name}`;
   try {
     await settings(env).storage.put(key, bytes, {
       httpMetadata: { contentType: file.type || (isVideoPurpose ? 'video/mp4' : 'image/jpeg') }
@@ -99,50 +98,21 @@ export async function saveUpload(env, options) {
   return { ok: true, url: key, message: '上传成功' };
 }
 
-// 素材库列举: R2 没有目录, 靠"前缀 + 扩展名"分类(与旧站按扩展名分图片/视频同口径)
-// 单次最多 1000 个对象(R2 list 的页大小), 后台素材量级远小于此, 不做分页
+// 素材库列举: 复用核心层的列举(已覆盖 image/ 与 video/ 两个新目录 + 历史 news_uploads/, 并带 kind/dir)
 export async function listMedia(env, kind, query) {
   const wanted = kind === 'video' ? 'video' : 'image';
   const keyword = String(query || '').trim().toLowerCase();
-  let objects = [];
-  try {
-    const listed = await settings(env).storage.list({ prefix: NEWS_PREFIX, limit: 1000 });
-    objects = (listed && listed.objects) || [];
-  } catch (error) {
-    console.error('列举素材失败', error && error.message);
-    return { success: false, message: '读取素材失败，请稍后重试' };
-  }
-  const items = [];
-  for (const object of objects) {
-    const key = String(object.key || '');
-    if (!key.startsWith(NEWS_PREFIX)) continue;
-    const relative = key.slice(NEWS_PREFIX.length);
-    if (relative.startsWith('_thumb/')) continue;          // 缩略图不算素材
-    const ext = extOf(relative);
-    if (kindOfExt(ext) !== wanted) continue;
-    if (keyword && !relative.toLowerCase().includes(keyword)) continue;
-    items.push({
-      path: key,
-      name: relative,
-      size: Number(object.size) || 0,
-      mtime: object.uploaded ? new Date(object.uploaded).toISOString() : ''
-    });
-  }
-  // 按时间倒序(最近的素材排前面), 与旧站一致
-  items.sort((left, right) => String(right.mtime).localeCompare(String(left.mtime)));
+  const listed = await listNewsMedia(env, wanted);
+  if (listed.failed) return { success: false, message: '读取素材失败，请稍后重试' };
+  const items = keyword
+    ? listed.items.filter((item) => item.name.toLowerCase().includes(keyword))
+    : listed.items;
   const accept = wanted === 'video' ? LISTABLE_VIDEO_EXTS : LISTABLE_IMAGE_EXTS;
-  return { success: true, kind: wanted, items, total: items.length, accept };
+  return { success: true, kind: wanted, items, total: items.length, accept, truncated: listed.truncated };
 }
 
-// 缩略图 key: 与对外接口 app/core/media_scheme.js 的口径一致(目录固定 _thumb/<宽度>/<stem>.webp)
-export function thumbKeyOf(relativePath) {
-  const text = String(relativePath || '').replace(/^\/+/, '');
-  if (!text.startsWith(NEWS_PREFIX)) return '';
-  const name = text.split('/').pop();
-  const dot = name.lastIndexOf('.');
-  const stem = dot > 0 ? name.slice(0, dot) : name;
-  return `${NEWS_PREFIX}_thumb/${THUMB_WIDTH}/${stem}.webp`;
-}
+// 缩略图 key: 与对外接口同一实现(见 core/storage.js 的 thumbKeyOf), 这里只保留历史导出名
+export { thumbKeyOf };
 
 // 素材库行里"有缩略图就给缩略图地址", 没有就留空(前端回退原图)
 export async function thumbUrlOf(env, item) {

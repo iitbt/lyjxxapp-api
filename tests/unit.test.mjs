@@ -47,11 +47,14 @@ test('素材地址: 相对路径拼媒体域, 绝对地址与包内图标原样'
   assert.equal(iconAssetUrl(env, 'news_uploads/icon.png'), 'https://storage.250036.xyz/news_uploads/icon.png');
 });
 
-test('缩略图路径: 只有 news_uploads 下的封面派生, 目录固定 _thumb/<宽度>/', () => {
+test('缩略图路径: 目录随原图走(新目录与历史目录各一份规则)', () => {
+  assert.equal(thumbKey('image/a.png'), 'image/_thumb/480/a.webp');
+  assert.equal(thumbKey('video/v.mp4', 800), 'video/_thumb/800/v.webp');
   assert.equal(thumbKey('news_uploads/home/a.jpg'), 'news_uploads/_thumb/480/a.webp');
   assert.equal(thumbKey('/news_uploads/home/a.png', 800), 'news_uploads/_thumb/800/a.webp');
-  assert.equal(thumbKey('avatar_uploads/a.png'), '');
-  assert.equal(thumbKey('https://x/y.png'), '');
+  assert.equal(thumbKey('avatar_uploads/a.png'), '', '头像不派生缩略图');
+  assert.equal(thumbKey('avatar/a.png'), '', '头像不派生缩略图');
+  assert.equal(thumbKey('https://x/y.png'), '', '外链不下发缩略图');
 });
 
 test('富文本净化: 去脚本/事件属性/危险协议, 保留白名单标签', () => {

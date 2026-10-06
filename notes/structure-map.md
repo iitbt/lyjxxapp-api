@@ -55,7 +55,7 @@
 | 限流 | 进程内计数（每 worker 一份） | D1 计数表（跨实例一致）+ Cron 清理 | **替代且更严** |
 | 缩略图 | Pillow 在线生成 | 迁移期预生成，存在才下发（R2） | **替代**（无 Pillow） |
 | 模板 | Jinja2（58 个） | 字符串拼 HTML + 原生 JS | **替代**（零构建） |
-| 静态文件 | `StaticFiles` 挂载（支持 Range） | 同口径：`/images/*`、`/news_uploads/*`、`/avatar_uploads/*` 都由 Worker 从 R2 直出（含 Range/206）；素材默认另走 R2 公开域 `storage.250036.xyz`，把 `MEDIA_BASE` 换成 Worker 域名即可单域名 | **一致**（底层换成 R2） |
+| 静态文件 | `StaticFiles` 挂载（支持 Range） | 同口径：`/images/*`、`/image/*`、`/video/*`、`/avatar/*`、`/news_uploads/*`、`/avatar_uploads/*` 都由 Worker 从 R2 直出（含 Range/206）；素材默认另走 R2 公开域 `storage.250036.xyz`，把 `MEDIA_BASE` 换成 Worker 域名即可单域名 | **一致**（底层换成 R2） |
 | 口令哈希 | bcrypt（12 轮） | PBKDF2-SHA256（10000 轮） | **让步**：免费套餐 CPU 10ms/请求，bcrypt 跑不动 |
 | 数据库 | SQLite/MySQL + 连接池 + 熔断 | D1（单写者） | **替代** |
 | 表清单与逐表行数 | 读 `sqlite_master` + 一条 `UNION ALL` 拿回所有表行数 | 同样读 `sqlite_master`，但**必须排除 D1 内部表**（`sqlite_%`、`_cf_%`、`d1_migrations` —— `_cf_KV` 是 D1 自带的 KV 影子表，对它计数会让整条复合查询失败），行数改用 `batch()` 逐表 COUNT | **替代** |

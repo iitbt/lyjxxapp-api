@@ -118,12 +118,15 @@ test('数据库工具: 非超管既进不了页面, 也调不动 exec', async ()
 const MEDIA_OBJECTS = [
   { key: 'news_uploads/a.png', size: 1024, uploaded: '2026-10-01T00:00:00Z' },
   { key: 'news_uploads/b.mp4', size: 4096, uploaded: '2026-10-02T00:00:00Z' },
+  { key: 'image/new.png', size: 8192, uploaded: '2026-10-06T00:00:00Z' },
   { key: 'news_uploads/_thumb/480/a.webp', size: 128, uploaded: '2026-10-01T00:00:00Z' }
 ];
 
 const mediaRows = {
   news: [
-    { id: 1, title: '引用了 a 的笔记', image: 'news_uploads/a.png', video_url: '', content: '', deleted_at: null }
+    { id: 1, title: '引用了 a 的笔记', image: 'news_uploads/a.png', video_url: '', content: '', deleted_at: null },
+    // 新目录里的素材同样要能被引用扫描认出来, 否则治理页会把"在用"的图当无用文件
+    { id: 2, title: '引用了新目录的笔记', image: '', video_url: '', content: '<p><img src="image/new.png"></p>', deleted_at: null }
   ]
 };
 
@@ -153,6 +156,11 @@ test('素材库治理: 列出素材、标注被引用与未引用', async () => 
   assert.equal(refs.success, true);
   assert.equal(refs.total, 1);
   assert.equal(refs.items[0].source, '笔记 · 封面');
+
+  // 新目录里的素材: 正文引用要能认出来(旧实现只认 news_uploads/ 前缀, 会误判成"未引用")
+  const newRefs = await (await get('/admin/media_manage_refs?path=image/new.png', env, cookie)).json();
+  assert.equal(newRefs.total, 1);
+  assert.equal(newRefs.items[0].source, '笔记 · 正文');
 });
 
 test('素材库治理: 有引用时拒绝删除(确认页说明 + POST 复查)', async () => {

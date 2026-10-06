@@ -366,7 +366,7 @@ function editView(ctx, { isNew, row, error, errorField, options }) {
       <div class="col-md-6">${imageUploadField({
       env: ctx.env, name: 'video_url', label: '视频地址(可选)显示在正文之前', value: row.video_url,
       mediaKind: 'video', mediaPicker: true, errorField,
-      hint: '填站内相对路径（如 news_uploads/video_x.mp4），或点右侧上传/从视频素材库选。'
+      hint: '填站内相对路径（如 video/video_x.mp4），或点右侧上传/从视频素材库选。'
     })}</div>
     </div>`
     + textareaField({

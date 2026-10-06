@@ -1,5 +1,6 @@
 // 素材地址: 库里只存相对路径, 下发时拼绝对地址; 素材本体走 R2 公开域(storage.250036.xyz)
 import { settings } from './config.js';
+import { thumbKeyOf } from './storage.js';
 
 export const NEWS_COVER_THUMB_WIDTH = 480;
 
@@ -25,16 +26,11 @@ export function iconAssetUrl(env, value, fallback = '') {
   return assetUrl(env, text, fallback);
 }
 
-// 缩略图口径与旧站完全一致: 目录固定 news_uploads/_thumb/<宽度>/, 且只处理 news_uploads 下的封面
+// 缩略图口径: 目录随原图走(<素材目录>_thumb/<宽度>/), 外链与非素材路径不下发缩略图
 export function thumbKey(relativePath, width = NEWS_COVER_THUMB_WIDTH) {
   const text = String(relativePath || '').trim();
   if (!text || text.includes('://')) return '';
-  const normalized = text.replace(/^\/+/, '');
-  if (!normalized.startsWith('news_uploads/')) return '';
-  const name = normalized.split('/').pop();
-  const dot = name.lastIndexOf('.');
-  const stem = dot > 0 ? name.slice(0, dot) : name;
-  return `news_uploads/_thumb/${width}/${stem}.webp`;
+  return thumbKeyOf(text, width);
 }
 
 // 缩略图存在才下发 image_thumb, 不存在则该键完全不出现(旧站行为, 小程序回退原图)

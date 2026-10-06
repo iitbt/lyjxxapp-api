@@ -50,6 +50,27 @@ test('用户页: 已设内部测试时给"取消内部测试"(动作值 remove_t
   assert.ok(html.includes('取消内部测试'));
 });
 
+test('上传弹窗: 静态脚本必须自己绑 [data-image-upload](漏了就是"点了上传没反应")', async () => {
+  const uploader = await readFile(new URL('../app/admin/static/js/image_upload.js', import.meta.url), 'utf8');
+  // 表单只带 data-* 说明行为, 真正发请求的是这个脚本; 旧站这段写在模板里, 抽静态脚本时最容易漏
+  assert.ok(uploader.includes("hasAttribute('data-image-upload')"), '要认领上传表单');
+  assert.ok(/document\.addEventListener\('submit',[\s\S]{0,4000}?\}, true\)/.test(uploader),
+    '要用 capture 阶段监听: 先 preventDefault, 才不会被整页提交处理器当成重复提交锁住按钮');
+  for (const attr of ['dataset.target', 'dataset.preview', 'dataset.insert', 'dataset.purpose']) {
+    assert.ok(uploader.includes(attr), `要按表单的 ${attr} 决定回填/插入/用途`);
+  }
+  assert.ok(uploader.includes('MediaInsertFromUpload'), '正文用法要交给页面提供的插入回调');
+});
+
+test('素材库弹窗: 目录清单由模板下发(前端不自己写死 news_uploads/)', async () => {
+  const { mediaLibraryModal } = await import('../app/admin/lib/partials.js');
+  assert.ok(mediaLibraryModal().includes('data-media-prefixes="image/,video/,news_uploads/"'),
+    '弹窗要下发素材目录清单(真值在 core/storage.js)');
+  const picker = await readFile(new URL('../app/admin/static/js/media_library.js', import.meta.url), 'utf8');
+  assert.ok(picker.includes("getAttribute('data-media-prefixes')"), '前端要读这份清单');
+  assert.ok(!/v = 'news_uploads\/' \+ v/.test(picker), '手工填路径不该再强行补历史前缀');
+});
+
 test('管理员页: 重置口令 / 删除 也用隐藏域(同类问题一并修)', async () => {
   const other = {
     id: 2, username: 'ops', nickname: '运维', email: '', role: 'normal',

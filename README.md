@@ -134,15 +134,16 @@ node tools/diff_api.mjs --old https://api0.250036.xyz --new http://127.0.0.1:878
 5. **`/health` 的 `uptime_s` 固定 0**（Worker 没有进程概念）；`/health/ready` 返回裸结构，未就绪 503；`checks` 字段是 `database/media`（旧站是 `serving_cache/cache_backend`，Worker 无缓存概念）。
 6. **`/metrics`** 仅在 `OBSERVABILITY_ENABLED=1` 时输出最小 Prometheus 文本（指标集比旧站小）。
 7. **`/pages/download`** 是本次新增页面（旧站没有），文案可用 `app_texts` 的 `download.tip` 覆盖。
-8. **`/images/*`、`/news_uploads/*`、`/avatar_uploads/*` 三个前缀都由 Worker 从 R2 直出**（旧站是 `StaticFiles` 挂载，同样支持 Range/206），所以 `app/images` 的 4 个文件必须上传，否则菜单图标会 404。
-9. **素材对外域名 `MEDIA_BASE` 可填两种**：① R2 公开域 `https://storage.250036.xyz`（**推荐**，不经 Worker，不吃请求额度）；② Worker 域名 `https://lyjx.250036.xyz`（少维护一个域名，但每条图片/视频请求都算一次 Worker 请求）。换法只是改 `[vars]` 后重新部署，代码与数据都不用动。
-10. **管理功能**：**已全量迁移**（18 个页面，含数据库工具与素材库治理），见 `app/admin/README.md`；仍未实现的是 ffmpeg（旧站也没有）与进程内缓存（先不加）。
-11. **框架层状态码与旧站一致**：未知路由 = 真 HTTP 404（`{code:404,msg:"接口不存在"}`）、未捕获异常 = 真 HTTP 500、请求体 >5MB = 413、`/apitest` 关闭 = HTTP 404 + `code:404` + `接口已关闭`。**业务失败仍是 HTTP 200 + `body.code`**（这条是硬口径，别改）。
-12. **CORS**：`ALLOWED_ORIGINS` 默认 `*`（与迁移前一致，小程序不带 Origin 不受影响）；填域名后只回白名单内的 Origin，且不启用 `allow-credentials`（旧站也是 `False`）。
-13. **参数语义对齐**：`intOf` = 旧站 `intval`（`int(float(v))`、溢出夹 `±2^31`、非法回退）；`/news/list` 的 `page` 夹到 1000；`/content/get_notice_unread` 未登录回 **200 + `未登录` + 空数据**（旧站口径，不是 401）；请求体上限 5MB（旧站 `BODY_LIMIT_BYTES`），multipart 豁免。
-14. **R2 绑定名是 `STORAGE`**（`wrangler.toml` 的 `[[r2_buckets]].binding`）：代码只从 `core/config.js` 的 `storage` 取值，那里兼容早期的 `MEDIA`；改绑定名时只改 `wrangler.toml` 一个字段。
-15. **站点图标按真实格式下发**：`app/favicon.ico` 实际是 800×800 的 **PNG**（前 8 字节 PNG 魔数），所以响应与页面 `type=` 都声明 `image/png`；页面引用统一带 `?v=<内容指纹>`（`core/favicon.js` 的 `FAVICON_HASH`）—— 浏览器按**站点**记"有没有图标"，不带指纹就换不掉内联之前 404 留下的旧结论。
-16. **`route_super` 类写路径现在有两道闸**：`app/admin/index.js` 分发前按 `entities.js` 的清单拦一道（原先只靠页面自查，管理员页漏了自查 → 任何登录账号都能增删管理员/重置口令），页面内仍可再自查。
+8. **素材目录分新老两套**：新上传按类型落 `image/`（图片）、`video/`（视频）、`avatar/`（小程序头像）；历史素材仍在 `news_uploads/`、`avatar_uploads/`。列举、引用判定与 Worker 直出**同时覆盖两套**（真值在 `app/core/storage.js` 的 `MEDIA_PREFIXES` / `SERVED_PREFIXES`），数据库里的相对路径一个都不用改、R2 对象也不用搬。缩略图目录随原图走（`image/a.png` → `image/_thumb/480/a.webp`），Cloudflare 侧只读不生成，缺失就回退原图。
+9. **`/images/*`、`/image/*`、`/video/*`、`/avatar/*`、`/news_uploads/*`、`/avatar_uploads/*` 都由 Worker 从 R2 直出**（旧站是 `StaticFiles` 挂载，同样支持 Range/206），所以 `app/images` 的 4 个文件必须上传，否则菜单图标会 404。
+10. **素材对外域名 `MEDIA_BASE` 可填两种**：① R2 公开域 `https://storage.250036.xyz`（**推荐**，不经 Worker，不吃请求额度）；② Worker 域名 `https://lyjx.250036.xyz`（少维护一个域名，但每条图片/视频请求都算一次 Worker 请求）。换法只是改 `[vars]` 后重新部署，代码与数据都不用动。
+11. **管理功能**：**已全量迁移**（18 个页面，含数据库工具与素材库治理），见 `app/admin/README.md`；仍未实现的是 ffmpeg（旧站也没有）与进程内缓存（先不加）。
+12. **框架层状态码与旧站一致**：未知路由 = 真 HTTP 404（`{code:404,msg:"接口不存在"}`）、未捕获异常 = 真 HTTP 500、请求体 >5MB = 413、`/apitest` 关闭 = HTTP 404 + `code:404` + `接口已关闭`。**业务失败仍是 HTTP 200 + `body.code`**（这条是硬口径，别改）。
+13. **CORS**：`ALLOWED_ORIGINS` 默认 `*`（与迁移前一致，小程序不带 Origin 不受影响）；填域名后只回白名单内的 Origin，且不启用 `allow-credentials`（旧站也是 `False`）。
+14. **参数语义对齐**：`intOf` = 旧站 `intval`（`int(float(v))`、溢出夹 `±2^31`、非法回退）；`/news/list` 的 `page` 夹到 1000；`/content/get_notice_unread` 未登录回 **200 + `未登录` + 空数据**（旧站口径，不是 401）；请求体上限 5MB（旧站 `BODY_LIMIT_BYTES`），multipart 豁免。
+15. **R2 绑定名是 `STORAGE`**（`wrangler.toml` 的 `[[r2_buckets]].binding`）：代码只从 `core/config.js` 的 `storage` 取值，那里兼容早期的 `MEDIA`；改绑定名时只改 `wrangler.toml` 一个字段。
+16. **站点图标按真实格式下发**：`app/favicon.ico` 实际是 800×800 的 **PNG**（前 8 字节 PNG 魔数），所以响应与页面 `type=` 都声明 `image/png`；页面引用统一带 `?v=<内容指纹>`（`core/favicon.js` 的 `FAVICON_HASH`）—— 浏览器按**站点**记"有没有图标"，不带指纹就换不掉内联之前 404 留下的旧结论。
+17. **`route_super` 类写路径现在有两道闸**：`app/admin/index.js` 分发前按 `entities.js` 的清单拦一道（原先只靠页面自查，管理员页漏了自查 → 任何登录账号都能增删管理员/重置口令），页面内仍可再自查。
 
 ## 六、部署（你自己执行）
 

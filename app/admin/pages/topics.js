@@ -227,7 +227,7 @@ async function rowsFragment(ctx) {
   return json({ success: true, rows: renderRows(ctx, config, rows), has_more: hasMore });
 }
 
-const VIDEO_HINT = '填站内相对路径（如 news_uploads/motorcycle/xxx.mp4），或点右侧「本地上传」传新视频、「视频素材库」从服务器已有视频里选。';
+const VIDEO_HINT = '填站内相对路径（如 video/video_xxx.mp4），或点右侧「本地上传」传新视频、「视频素材库」从服务器已有视频里选。';
 const POSTER_HINT = '封面建议使用 16:9 横版图片（如 1280×720），后台统一按 16:9 居中裁剪显示。';
 
 function redirect(location) {

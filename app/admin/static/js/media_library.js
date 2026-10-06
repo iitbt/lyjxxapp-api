@@ -29,6 +29,9 @@
   var mediaKindLocked = false;
   var mediaTarget = '';       // mode=input: 目标输入框选择器
   var mediaPreview = '';      // mode=input: 可选, 目标预览图选择器
+  // 素材目录清单由模板下发(真值在 core/storage.js), 手工填写时用它判断"写全了没有"
+  var mediaPrefixes = String((mediaModal && mediaModal.getAttribute('data-media-prefixes')) || 'image/,video/,news_uploads/')
+    .split(',').map(function (p) { return p.trim(); }).filter(Boolean);
   var mediaLoaded = {};       // {kind: true}: 每个分类成功拉过一次
   // 2026-09-23(v2.3.2 修): 按分类缓存**数据**(不只是"拉没拉过"的标记)。
   // 为什么必须存数据: 原实现只记 mediaLoaded[kind], 于是"切回已拉过的分类"时**跳过加载**,
@@ -175,10 +178,8 @@
     // 锁定时隐藏整块分类切换 —— UI 上就不给切, 与"只显示某一类素材"的口径一致
     if (mediaKindGroupEl) { mediaKindGroupEl.classList.toggle('d-none', mediaKindLocked); }
     if (mediaManualEl) {
-      // 手工填写框的示例跟随分类(避免误导: 图片分类下的示例却是 .mp4)
-      mediaManualEl.placeholder = mediaKind === 'image'
-        ? 'news_uploads/cover/xxx.png'
-        : 'news_uploads/motorcycle/xxx.mp4';
+      // 手工填写框的示例跟随分类与目录口径(避免误导: 图片分类下的示例却是 .mp4)
+      mediaManualEl.placeholder = mediaKind === 'image' ? 'image/cover_xxx.png' : 'video/video_xxx.mp4';
     }
     // 2026-09-23(v2.3.2 修): 这里原来是 `if (force || !mediaLoaded[mediaKind]) mediaLoad();` ——
     // "拉过就不再拉", 但列表 DOM 里仍留着上一个分类的行, 于是切回来时画面与分类不符。
@@ -221,11 +222,15 @@
     }
   }
 
-  // 手工路径归一化: 去开头斜杠与反斜杠 → 补 news_uploads/ 前缀 → 拒绝 ..
+  // 手工路径归一化: 去开头斜杠与反斜杠 → 没写目录就按当前分类补(image/ 或 video/) → 拒绝 ..
   function mediaNormalizeManual(value) {
     var v = (value || '').trim().replace(/^[/\\]+/, '').replace(/\\/g, '/');
     if (!v || v.indexOf('..') >= 0) { return ''; }
-    if (!/^news_uploads\//.test(v)) { v = 'news_uploads/' + v; }
+    var full = false;
+    for (var i = 0; i < mediaPrefixes.length; i++) {
+      if (v.indexOf(mediaPrefixes[i]) === 0) { full = true; break; }
+    }
+    if (!full) { v = (mediaKind === 'video' ? 'video/' : 'image/') + v; }
     return v;
   }
 
@@ -290,7 +295,7 @@
       manualBtn.addEventListener('click', function () {
         var rel = mediaNormalizeManual(mediaManualEl ? mediaManualEl.value : '');
         if (!rel) {
-          mediaSetHint('路径不合法：应为 news_uploads/ 下的相对路径，且不能包含 ..', true);
+          mediaSetHint('路径不合法：应为 ' + mediaPrefixes.join(' 或 ') + ' 下的相对路径，且不能包含 ..', true);
           return;
         }
         mediaApply({ path: rel, kind: mediaKindOfPath(rel) });
