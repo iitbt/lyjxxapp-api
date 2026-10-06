@@ -1,7 +1,7 @@
 // 后台页面外壳: 结构照搬旧站 base.html(同样的 class 名与分组层级), 因此旧站 admin.css 能直接复用
 // 脚本引用顺序不能乱: ① head 里同步引 sidebar-groups.js(首帧就要恢复分组展开态);
 // ② 侧栏标记之后 inline 调 restore; ③ body 末尾同步引 admin-shell.js(DOM 已就绪, 抽屉才绑得上)
-import { escapeHtml } from '../../core/html.js';
+import { FAVICON_LINK, escapeHtml } from '../../core/html.js';
 import { NAV_GROUPS } from './nav.js';
 
 // 仅本 Worker 需要的几行样式(旧 CSS 里没有"待迁"标记与统计卡片)
@@ -58,6 +58,7 @@ export function adminLayout(options = {}) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escapeHtml(title)} - 狼牙极限运动笔记</title>
+${FAVICON_LINK}
 <link href="/admin/static/vendor/bootstrap.min.css?v=${version}" rel="stylesheet">
 <link href="/admin/static/vendor/bootstrap-icons.min.css?v=${version}" rel="stylesheet">
 <link href="/admin/static/css/admin.css?v=${version}" rel="stylesheet">

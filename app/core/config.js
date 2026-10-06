@@ -24,6 +24,9 @@ function str(value) {
 export function settings(env) {
   const e = env || {};
   return {
+    // 站点品牌(旧站 config.py 的 site_name/site_short): 后台标题、登录页与图标 alt 都用它
+    siteName: str(e.SITE_NAME) || '狼牙极限运动笔记',
+    siteShort: str(e.SITE_SHORT) || '狼牙极限',
     // 素材对外域名(库里只存相对路径, 下发时拼这个前缀); 空 = 未配置
     mediaBase: str(e.MEDIA_BASE),
     // 密钥未配置时也走假数据分支(旧站同口径: 没配 secret 就 mock)

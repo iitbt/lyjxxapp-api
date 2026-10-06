@@ -176,7 +176,7 @@ DELETE FROM admin_users;   -- 清掉全部管理员(通常只有 1 个)
 | 口令存储 | 只存 **PBKDF2-SHA256** 哈希（`pbkdf2_sha256$迭代数$salt$hash`），明文不落库，代码与文档里也没有 |
 | 为什么不是 bcrypt | Workers 免费套餐 CPU 只有 **10ms/请求**，bcrypt 要 100~300ms（直接报 Error 1102），连 PBKDF2 十万轮也会超；当前用 10000 轮 + 登录限速补偿。旧库 `admin_users` 的 bcrypt 口令**不能沿用**，bootstrap 时用同样用户名重建一次即可 |
 | 会话 | `HttpOnly; SameSite=Strict` 的 HMAC 签名 Cookie（`Secure` **只在 https 下发** —— http 页面下浏览器会直接丢弃带 Secure 的 Cookie，本地预览会表现为"登录成功却立刻回到登录页"），载荷含 `id / 用户名 / 角色 / 过期时间 / 口令指纹`（改了口令即踢下线） |
-| 登录限速 | IP 级 5 次 / 15 分钟锁定，外加同一账号 10 次 / 15 分钟；失败提示统一"用户名或密码不正确"（不暴露账号是否存在） |
+| 登录限速 | IP 级 5 次 / 15 分钟锁定，外加同一账号 10 次 / 15 分钟；失败提示统一"用户名或密码错误"（与旧站 `admin/auth.py` 逐字一致，不暴露账号是否存在） |
 | 登出 | `POST /admin/logout`（只收 POST，避免第三方用 `<img src="/admin/logout">` 把人踢下线） |
 
 > 目录结构、迁移进度、与旧站的逐项差异见 `admin/README.md`。
@@ -322,7 +322,7 @@ jobs:
    python tools\make_cover_thumbs.py     # 产出 news_uploads/_thumb/480|800/<名>.webp
    ```
 2. **上传时保持 key = 库内相对路径**：`news_uploads/...`、`avatar_uploads/...`（数据库字段一个字都不用改）。
-3. **`app/images` 必须传到 `images/` 前缀**（Worker 的 `/images/*` 与 `/favicon.ico` 都从这里读，不传则「我的」页菜单图标 404）：
+3. **`app/images` 必须传到 `images/` 前缀**（Worker 的 `/images/*` 从这里读，不传则「我的」页菜单图标 404；**站点图标 `/favicon.ico` 不在这里** —— 它已内联进 Worker，见下节）：
    ```powershell
    wrangler r2 object put lyjxxapp-r2/images/user.jpg --file=..\..\fastapi\app\images\user.jpg
    # 文件多时用 rclone(需 R2 的 S3 凭据): rclone copy ..\..\fastapi\app\images r2:lyjxxapp-r2/images
@@ -331,11 +331,37 @@ jobs:
 
 ---
 
+## 站点图标（favicon，所有页面共用）
+
+图标只有一个来源：`app/favicon.ico`（与旧站 `fastapi/app/favicon.ico` 是同一个文件，48725 字节）。
+它被**内联进 Worker**（生成物 `app/core/favicon.js`），由 `main.js` 在 `/favicon.ico` 直出：
+
+| 项 | 做法 | 为什么 |
+|---|---|---|
+| 页面引用 | `<link rel="icon" href="/favicon.ico" type="image/x-icon">`，由 `core/html.js` 的 `FAVICON_LINK` 统一注入（状态页 / 协议·隐私·下载页 / 后台所有页 / 登录页 / 初始化页） | **根绝对路径、不带域名**：自定义域 `lyjx.250036.xyz`、`*.workers.dev` 预览域、本地 `wrangler dev` 都成立；写死域名会在预览域失效 |
+| 服务侧 | Worker 路由 `GET /favicon.ico`，返回内联字节（在 `/images/*` 判定之后、路由表之前） | Workers/Pages 上 `/favicon.ico` 只是一次普通请求，**不会自动命中静态托管**；图标必须由 Worker 自己响应 |
+| 响应头 | `content-type: image/x-icon`、`cache-control: public, max-age=604800`、`etag`（内容指纹） | 浏览器对图标是**按地址缓存**的：没有长缓存 + 稳定 ETag，每个页面都会再拉一次（旧站 StaticFiles 给的也是 `max-age=604800`） |
+| 换图标 | 覆盖 `app/favicon.ico` → `node tools/embed_favicon.mjs` → 升 `main.js` 的 `API_VERSION` → 部署 | 生成物与版本号联动，避免"换了图标但用户看到的是旧缓存" |
+| 后端直出 | 不依赖 R2 里有没有该对象，也不额外消耗 R2 子请求 | 线上 2.1.2 的 `/favicon.ico` 就是"R2 没这个对象 → 404" |
+
+部署后自查：
+
+```powershell
+curl.exe -I https://lyjx.250036.xyz/favicon.ico
+# 期望: 200 / content-type: image/x-icon / cache-control: public, max-age=604800 / 有 etag
+```
+
+> `/images/logo.png` 是另一回事（登录页品牌图标，走 R2 的 `images/` 前缀）。
+> R2 里没有它时登录页显示兜底的盾牌图标（不会裂图）；想换成真 logo，把它传到 `images/` 前缀即可。
+
+---
+
 ## 验证清单（切线路前必须全过）
 
 | 请求 | 期望 |
 |---|---|
-| `GET /` | HTML 状态页（服务/版本/数据库/素材/媒体域/时间） |
+| `GET /` | HTML 状态页（服务名 + 运行中药丸 / 服务器时间·走动 / 进程启动时间·当前 isolate / 数据统计 6 项 / 依赖状态监控 D1+R2 与总连接状态 / 使用说明），与旧站 `templates/status.html` 同形 |
+| `GET /favicon.ico` | **200** + `content-type: image/x-icon` + `cache-control: public, max-age=604800`（内联字节直出，不需要往 R2 传） |
 | `GET /?format=json` | `{"name":"狼牙极限运动笔记API","description":"本服务为…数据服务。","status":"运行中","server_time"}`（name/description/status 三值与旧站逐字一致） |
 | `GET /health` | **裸结构**（无 code 包装）`{"status":"ok","service":"狼牙极限运动笔记API","uptime_s":0,"server_time",checks:{database,media}}` |
 | `GET /health/ready` | **裸结构**（无 code 包装）`{"status":"ready",version,server_time,checks}`；D1 或 R2 不通时 **503** 且 `status:"starting"` |

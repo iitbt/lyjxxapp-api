@@ -4,6 +4,7 @@ import test from 'node:test';
 
 import { handleAdmin } from '../app/admin/index.js';
 import { hashPassword } from '../app/admin/lib/password.js';
+import { API_VERSION } from '../main.js';
 
 const HOST = 'https://admin.test';
 const SECRET = 'test-session-secret';
@@ -75,7 +76,8 @@ function call(path, { env, method = 'GET', body, headers = {}, origin } = {}) {
     init.headers['content-type'] = 'application/x-www-form-urlencoded';
     init.body = new URLSearchParams(body).toString();
   }
-  return handleAdmin(new Request(`${HOST}${path}`, init), env);
+  // 与线上一致: 版本号由入口注入(唯一来源 main.js 的 API_VERSION)
+  return handleAdmin(new Request(`${HOST}${path}`, init), env, { version: API_VERSION });
 }
 
 function cookieOf(response) {
@@ -94,13 +96,22 @@ test('后台: 未登录访问任意页面都跳登录页', async () => {
   assert.match(res.headers.get('location'), /^\/admin\/login\?next=/);
 });
 
-test('后台: 登录页有用户名与口令输入框', async () => {
+test('后台: 登录页与旧站 login.html 同形(字段名/卡片/文案/版本号/图标)', async () => {
   const { env } = makeEnv();
   const res = await call('/admin/login', { env });
   assert.equal(res.status, 200);
   const html = await res.text();
-  assert.ok(html.includes('name="username"'));
+  // 字段名与旧站一致; 首版的 username/password 后端仍接受(见"登录兼容"那条用例)
+  assert.ok(html.includes('name="admin_username"'), '用户名应为 admin_username');
+  assert.ok(html.includes('name="admin_password"'), '口令应为 admin_password');
   assert.ok(html.includes('type="password"'));
+  assert.ok(html.includes('class="card login-card shadow"'), '布局应是旧站那张卡片');
+  assert.ok(html.includes('请输入管理员账号') && html.includes('请输入密码'), '占位文案与旧站一致');
+  assert.ok(html.includes('登 录'), '按钮文案与旧站一致');
+  assert.ok(html.includes('忘记密码请联系超级管理员重置'), '页脚提示与旧站一致');
+  assert.ok(html.includes('狼牙极限运动笔记'), '品牌名取 site_name');
+  assert.ok(html.includes(`系统版本 v${API_VERSION}`), '登录页版本号与后台同源');
+  assert.ok(html.includes('<link rel="icon" href="/favicon.ico" type="image/x-icon">'), '登录页也要带站点图标');
 });
 
 test('后台: 口令正确则下发会话 Cookie 并跳控制面板', async () => {
@@ -118,7 +129,8 @@ test('后台: 口令错误不区分账号存在与否, 也不下发 Cookie', asy
   const res = await call('/admin/login', { env, method: 'POST', body: { username: 'admin', password: 'wrong-password' } });
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('set-cookie'), null);
-  assert.ok((await res.text()).includes('用户名或密码不正确'));
+  // 文案与旧站 auth.py 逐字一致("错误", 不是"不正确")
+  assert.ok((await res.text()).includes('用户名或密码错误'));
 });
 
 test('后台: 缺少同源 Origin 的 POST 直接 403', async () => {
@@ -159,8 +171,44 @@ test('后台: 登出清 Cookie 并回登录页', async () => {
   const { env } = makeEnv();
   const res = await call('/admin/logout', { env, method: 'POST' });
   assert.equal(res.status, 302);
-  assert.equal(res.headers.get('location'), '/admin/login');
+  // 与旧站一致: 登出后回登录页并带"已退出登录"提示(页面不再是空白)
+  assert.equal(res.headers.get('location'),
+    `/admin/login?message=${encodeURIComponent('已退出登录')}`);
   assert.match(String(res.headers.get('set-cookie')), /Max-Age=0/);
+});
+
+test('后台: 登录支持回跳原页面, 且拒绝站外地址', async () => {
+  const { env } = makeEnv();
+  const back = await call('/admin/login', {
+    env, method: 'POST', body: { admin_username: 'admin', admin_password: PASSWORD, redirect: '/admin/users?page=2' }
+  });
+  assert.equal(back.status, 302);
+  assert.equal(back.headers.get('location'), '/admin/users?page=2');
+
+  // 开放重定向防护: 站外地址一律回控制面板(与旧站 auth.py 同口径)
+  for (const bad of ['//evil.example.com', 'https://evil.example.com', '/news/list']) {
+    const res = await call('/admin/login', {
+      env, method: 'POST', body: { admin_username: 'admin', admin_password: PASSWORD, redirect: bad }
+    });
+    assert.equal(res.headers.get('location'), '/admin/dashboard', `${bad} 不该被当成回跳目标`);
+  }
+});
+
+test('后台: 登录字段名兼容(首版 username/password 仍可登录)', async () => {
+  const { env } = makeEnv();
+  const res = await call('/admin/login', { env, method: 'POST', body: { username: 'admin', password: PASSWORD } });
+  assert.equal(res.status, 302);
+  assert.equal(res.headers.get('location'), '/admin/dashboard');
+});
+
+test('后台: 登录失败页回显 redirect, 登录后能回到原页面', async () => {
+  const { env } = makeEnv();
+  const failed = await call('/admin/login', {
+    env, method: 'POST', body: { admin_username: 'admin', admin_password: 'wrong', redirect: '/admin/news_manage' }
+  });
+  const html = await failed.text();
+  assert.ok(html.includes('name="redirect" value="/admin/news_manage"'), '失败后要保留原地址');
+  assert.ok(html.includes('用户名或密码错误'));
 });
 
 test('后台: 表为空时能初始化首个管理员, 表非空则拒绝', async () => {

@@ -106,15 +106,26 @@ export async function handleAdmin(request, env, options = {}) {
 
   const session = await currentAdmin(request, env);
 
+  // 登录页要的入参与旧站 login.html 的模板变量一一对应: 版本号(与后台侧栏同源)、
+  // 提示条(message=成功 / error=失败)、redirect=登录后回跳的原地址。
+  const authView = {
+    env,
+    version: String(options.version || ''),
+    message: url.searchParams.get('message') || '',
+    error: url.searchParams.get('error') || '',
+    // 旧站用 ?redirect=, 首版 CF 用 ?next=: 两个都认(只接受站内 /admin 路径, auth.js 里兜底校验)
+    redirect: url.searchParams.get('redirect') || url.searchParams.get('next') || ''
+  };
+
   // 未登录也要能打开的页面: 登录页与首次初始化
   if (path === LOGIN_PATH) {
     if (session.ok) return redirect(DASHBOARD_PATH);
-    if (method === 'POST') return asResponse(await loginSubmit(request, env, await readForm(request)));
-    return asResponse(await loginPage({ env }));
+    if (method === 'POST') return asResponse(await loginSubmit(request, env, await readForm(request), authView));
+    return asResponse(await loginPage(authView));
   }
   if (path === BOOTSTRAP_PATH) {
-    if (method === 'POST') return asResponse(await bootstrapSubmit(request, env, await readForm(request)));
-    return asResponse(await bootstrapPage({ env }));
+    if (method === 'POST') return asResponse(await bootstrapSubmit(request, env, await readForm(request), authView));
+    return asResponse(await bootstrapPage(authView));
   }
   if (path === LOGOUT_PATH) {
     // 只收 POST: 否则第三方页面用 <img src="/admin/logout"> 就能把人踢下线

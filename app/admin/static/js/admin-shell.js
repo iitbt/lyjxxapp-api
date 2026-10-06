@@ -129,20 +129,24 @@
       if (token) { headers['X-CSRF-Token'] = token; }
       return headers;
     };
-    // 防重复提交(修正版): 关键点是**不能**在 submit 阶段就禁用按钮 ——
-    // 浏览器是先触发 submit 事件, 再构造表单数据(entry list), 而"被禁用的控件"
-    // 不会进入表单数据。本后台大量页面靠"提交按钮自己的 name/value"判断动作
-    // (change_password / add_admin / delete_user / reset_password ...),
-    // 一旦在此处立即 btn.disabled = true, 这些字段就会丢失,
-    // 后端拿不到动作字段 → 表现为"点了提交完全没反应"。
-    //
-    // 2026-09-20(BUG-2) 修正: 以前"置位 + 延迟禁用按钮"都写在 capture 阶段,
-    // 而 capture 先于表单自身的 onsubmit="return confirm(...)" 执行 —— 用户点"取消"时
-    // 提交被取消, 但标记位与按钮状态都不回滚: 按钮永久停在"处理中…", 表单再也提交不了。
-    // 现在拆成两段:
-    //   ① capture: 只负责拦截"已在提交中"的重复提交、置位;
-    //   ② 冒泡阶段(在表单自身 onsubmit/按钮 onclick 之后): 若提交未被取消才锁定按钮;
-    //      若被取消(confirm 取消 / 业务前端校验失败)则复位标记, 保证还能再提交。
+    // 锁按钮只能用 aria-disabled: 表单数据在 submit 事件走完之后才构造, 事件里被禁用的按钮不进表单数据。
+    // 提交只看按钮的 value 属性(与 innerHTML 无关), 所以只改 button 的文案, input[type=submit] 不改。
+    function lockButton(btn) {
+      if (btn.getAttribute('aria-disabled') === 'true') return;
+      btn.setAttribute('aria-disabled', 'true');
+      btn.style.pointerEvents = 'none';
+      if (btn.tagName === 'INPUT') return;
+      if (!btn.dataset.originHtml) btn.dataset.originHtml = btn.innerHTML;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> 处理中…';
+    }
+    function unlockButton(btn) {
+      btn.removeAttribute('aria-disabled');
+      btn.style.pointerEvents = '';
+      if (btn.dataset.originHtml !== undefined) {
+        btn.innerHTML = btn.dataset.originHtml;
+        delete btn.dataset.originHtml;
+      }
+    }
     document.addEventListener('submit', function (e) {
       var form = e.target;
       if (!form || form.method.toLowerCase() !== 'post') return;
@@ -153,7 +157,7 @@
       form.dataset.submitting = '1';
     }, true);
 
-    // 冒泡阶段的收尾(见上): defaultPrevented 表示这次提交已被取消 → 必须复位
+    // 冒泡阶段的收尾: defaultPrevented 表示这次提交已被取消 → 必须复位
     document.addEventListener('submit', function (e) {
       var form = e.target;
       if (!form || form.method.toLowerCase() !== 'post') return;
@@ -161,21 +165,21 @@
         form.dataset.submitting = '';
         return;
       }
-      // 提交确实要发出去了, 这时再禁用按钮是安全的(multipart 也一并处理:
-      // 禁用发生在表单数据构造完成之后, 不会丢按钮 name)。
+      // 提交确实要发出去了: 只锁按钮的可点性, 绝不动它的 name/value
       var btn = form.querySelector('button[type="submit"], input[type="submit"]');
-      if (!btn || btn.disabled) return;
-      btn.disabled = true;
-      if (!btn.dataset.originHtml) btn.dataset.originHtml = btn.innerHTML;
-      btn.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> 处理中…';
+      if (btn) lockButton(btn);
       // 不再设"N 秒后自动解锁": 慢请求下解锁会让用户再次提交成功。
       // 需要恢复的场景(校验失败/异常)服务端会重新渲染整页, 按钮自然回到初始态;
       // 从 bfcache 返回时由下面的 pageshow 复位。
     }, false);
-    // 浏览器"后退"从 bfcache 恢复页面时, 清掉可能残留的提交中标记
+    // 浏览器"后退"从 bfcache 恢复页面时, 清掉可能残留的提交中标记与按钮锁
     window.addEventListener('pageshow', function () {
       var list = document.querySelectorAll('form[data-submitting="1"]');
-      for (var i = 0; i < list.length; i++) list[i].dataset.submitting = '';
+      for (var i = 0; i < list.length; i++) {
+        list[i].dataset.submitting = '';
+        var btn = list[i].querySelector('button[type="submit"], input[type="submit"]');
+        if (btn) unlockButton(btn);
+      }
     });
 
     // 错误/成功提示自动聚焦: 提示是服务端渲染后静态出现的,

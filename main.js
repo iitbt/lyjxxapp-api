@@ -20,11 +20,12 @@ import { registerContentRoutes } from './app/api/content.js';
 import { registerAppConfigRoutes } from './app/api/app_config.js';
 import { registerNewsRoutes } from './app/api/news.js';
 import { registerUserRoutes } from './app/api/user.js';
+import { faviconResponse } from './app/core/favicon.js';
 
 // 版本号(**唯一来源**): 与旧站 fastapi/main.py 的 APP_VERSION 同一处 ——
 // 状态页 / /health/ready / /apitest 展示它, 后台静态资源的 ?v= 缓存键也用它。
 // 改版本只改这一行; wrangler.toml 里不再有 API_VERSION, 也不再有第二份默认值。
-export const API_VERSION = '2.1.2';
+export const API_VERSION = '2.1.3';
 
 // ==== 路由装配(对应旧站 main.py 的 include_router 段) ====
 const router = createRouter();
@@ -43,7 +44,7 @@ export function routeTable() {
 }
 
 // ==== 媒体直出(旧站是 StaticFiles 挂载) ====
-// 只服务 R2 的 images/ 前缀: 包内图标与 favicon; 笔记/头像素材走公开域 media.250036.xyz
+// /images/* 只服务 R2 的 images/ 前缀(包内图标等); 笔记/头像素材走公开域 media.250036.xyz
 async function serveObject(env, key) {
   try {
     const object = await env.MEDIA.get(key);
@@ -87,7 +88,8 @@ export default {
       return withHeaders(await serveObject(env, decodeURIComponent(url.pathname.replace(/^\/+/, ''))), requestId, corsHeaders);
     }
     if (url.pathname === '/favicon.ico') {
-      return withHeaders(await serveObject(env, 'images/favicon.ico'), requestId, corsHeaders);
+      // 站点图标由 Worker 内联字节直出(见 core/favicon.js): 不依赖 R2 里有没有该对象, 也省一次子请求
+      return withHeaders(faviconResponse(), requestId, corsHeaders);
     }
 
     const handler = router.match(request.method, url.pathname);

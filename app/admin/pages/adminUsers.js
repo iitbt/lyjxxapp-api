@@ -21,17 +21,20 @@ function renderRows(ctx, admins) {
     const badge = builtin ? ' <span class="badge text-bg-danger">超管</span>' : '';
     const actions = builtin
       ? '<span class="text-muted small">内置账户</span>'
+      // 动作字段一律走隐藏域(与上面的 add_admin 同一写法): 按钮的 name/value 会被"提交时禁用按钮"的脚本丢掉
       : `<div class="action-cell justify-content-center">
         <form method="post" class="d-inline">
           <input type="hidden" name="admin_id" value="${row.id}">
           <input type="hidden" name="page" value="${Number(ctx.query.page) || 1}">
-          <button class="btn btn-sm btn-outline-secondary" type="submit" name="reset_admin_password" value="1"
+          <input type="hidden" name="reset_admin_password" value="1">
+          <button class="btn btn-sm btn-outline-secondary" type="submit"
                   onclick="return confirm('重置该管理员的登录口令？新口令仅本次显示。')"><i class="bi bi-key" aria-hidden="true"></i> 重置口令</button>
         </form>
         <form method="post" class="d-inline">
           <input type="hidden" name="admin_id" value="${row.id}">
           <input type="hidden" name="page" value="${Number(ctx.query.page) || 1}">
-          <button class="btn btn-sm btn-outline-danger" type="submit" name="delete_admin" value="1"
+          <input type="hidden" name="delete_admin" value="1">
+          <button class="btn btn-sm btn-outline-danger" type="submit"
                   onclick="return confirm('确定删除该管理员？')"><i class="bi bi-trash" aria-hidden="true"></i> 删除</button>
         </form>
       </div>`;

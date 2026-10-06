@@ -40,15 +40,16 @@ function actionsCell(ctx, row) {
   // 敏感操作仅超管可见(权限口径与分发前拦截、与旧站中间件一致)
   if (!ctx.session.isSuper) return `<div class="action-cell justify-content-center">${detail}</div>`;
   const page = clampPage(ctx.query.page, null);
+  // 动作字段走隐藏域: 提交按钮的 name/value 会被"提交时禁用按钮"的脚本丢掉, 隐藏域不受影响。
   const base = `<input type="hidden" name="user_id" value="${row.id}"><input type="hidden" name="page" value="${page}">`;
   // 两个方向都改用户能看到的范围, 与"恢复账号"一样先确认再提交
   const trusted = intOr(row.is_trusted, 0) === 1
-    ? `<form method="post" class="d-inline">${base}<button class="btn btn-sm btn-outline-secondary" name="action" value="remove_trusted" type="submit"
+    ? `<form method="post" class="d-inline">${base}<input type="hidden" name="action" value="remove_trusted"><button class="btn btn-sm btn-outline-secondary" type="submit"
          onclick="return confirm('取消该用户的内部测试身份？取消后将失去专题视频查看、留言免审与「仅内部测试可见」菜单。')">取消内部测试</button></form>`
-    : `<form method="post" class="d-inline">${base}<button class="btn btn-sm btn-outline-secondary" name="action" value="set_trusted" type="submit"
+    : `<form method="post" class="d-inline">${base}<input type="hidden" name="action" value="set_trusted"><button class="btn btn-sm btn-outline-secondary" type="submit"
          onclick="return confirm('设为内部测试用户？设置后可查看专题视频、留言免审，并看到「仅内部测试可见」的菜单。')">设为内部测试</button></form>`;
   const restore = intOr(row.status, 0) !== 0
-    ? `<form method="post" class="d-inline">${base}<button class="btn btn-sm btn-outline-success" name="action" value="restore_user" type="submit"
+    ? `<form method="post" class="d-inline">${base}<input type="hidden" name="action" value="restore_user"><button class="btn btn-sm btn-outline-success" type="submit"
          onclick="return confirm('恢复该账号？恢复后他可以正常登录。')">恢复账号</button></form>`
     : '';
   const remove = `<a class="btn btn-sm btn-outline-danger" href="/admin/delete_confirm?kind=user&amp;id=${row.id}&amp;back=${encodeURIComponent(MANAGE_URL)}">删除</a>`;

@@ -39,7 +39,8 @@
    ```bash
    rclone copy fastapi/news_uploads r2:lyjxxapp-r2/news_uploads --transfers 8
    rclone copy fastapi/avatar_uploads r2:lyjxxapp-r2/avatar_uploads
-   # app/images 里的 4 个文件必须放到 images/ 前缀: Worker 的 /images/* 与 favicon 都从这里读
+   # app/images 里的 4 个文件必须放到 images/ 前缀: Worker 的 /images/* 从这里读
+   # (站点图标 /favicon.ico 不在这里 —— 它是内联进 Worker 的, 见 DEPLOY.md「站点图标」)
    rclone copy fastapi/app/images r2:lyjxxapp-r2/images
    ```
 

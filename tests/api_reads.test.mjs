@@ -1,5 +1,6 @@
 // 只读接口自检: 状态/探针/内容/配置/笔记读路径/静态页 —— 重点盯响应形态特例
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { TRUSTED_USER_ROW, USER_ROW, get, getJson, makeEnv } from './stub.mjs';
@@ -15,7 +16,17 @@ test('状态类: HTML 状态页 / format=json / 301 重定向 / apitest', async 
   const page = await get('/', env);
   assert.equal(page.status, 200);
   assert.match(page.headers.get('content-type'), /text\/html/);
-  assert.match(await page.text(), /服务状态/);
+  const html = await page.text();
+  assert.match(html, /服务状态/);
+  // 信息项与旧站 templates/status.html 对齐: 标题药丸 / 两个时间 / 说明 / 6 项统计 / 依赖监控 / 使用说明
+  for (const text of ['服务器时间', '进程启动时间', '数据统计', '总用户数', '今日新增', '本周新增',
+    '本月新增', '笔记总数', '评论总数', '依赖状态监控', '序号', '当前使用', '响应时间',
+    '总连接状态', '使用说明', '/apitest', '/test']) {
+    assert.ok(html.includes(text), `状态页缺少「${text}」`);
+  }
+  assert.ok(html.includes('data-live="clock"'), '服务器时间要交给 live_time.js 走动');
+  assert.ok(html.includes('data-live-anchor='), '首屏时间锚点不能少(否则首帧显示的是本机时间)');
+  assert.ok(html.includes('/admin/static/js/live_time.js?v='), '走动时间要复用后台那一份实现');
 
   const asJson = await getJson('/?format=json', env);
   assert.equal(asJson.status, '运行中');
@@ -35,6 +46,31 @@ test('状态类: HTML 状态页 / format=json / 301 重定向 / apitest', async 
   assert.equal(probe.data.api_status, 'online');
   assert.equal(probe.data.database_connected, true);
   assert.equal(typeof probe.timestamp, 'number');
+});
+
+test('站点图标: /favicon.ico 直出 app/favicon.ico 的字节, 不依赖 R2', async () => {
+  // R2 桩刻意给"取不到"(默认 null): 图标由 Worker 内联字节直出, 不该依赖 R2 有没有该对象
+  const { env } = makeEnv();
+  const res = await get('/favicon.ico', env);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type'), 'image/x-icon');
+  assert.equal(res.headers.get('cache-control'), 'public, max-age=604800');
+  assert.ok(res.headers.get('etag'), '标签稳定才能走 304');
+
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  const source = await readFile(new URL('../app/favicon.ico', import.meta.url));
+  assert.equal(bytes.length, source.length, '图标字节数要与仓库里的文件一致');
+  assert.deepEqual(Array.from(bytes.subarray(0, 8)), Array.from(source.subarray(0, 8)), '文件头要对得上');
+});
+
+test('站点图标: 对外页与协议页都带 <link rel="icon">', async () => {
+  const { env } = makeEnv({ db: (sql) => (/SELECT 1 AS c/i.test(sql) ? { c: 1 } : null) });
+  for (const path of ['/', '/pages/terms', '/pages/privacy', '/pages/download']) {
+    const res = await get(path, env);
+    assert.equal(res.status, 200, `${path} 应能打开`);
+    assert.ok((await res.text()).includes('<link rel="icon" href="/favicon.ico" type="image/x-icon">'),
+      `${path} 缺少站点图标引用`);
+  }
 });
 
 test('探针: /health 200, /health/ready 数据库异常时 503', async () => {

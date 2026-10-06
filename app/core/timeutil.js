@@ -37,3 +37,19 @@ export function datePart(value) {
   const text = String(value || '').trim();
   return text.slice(0, 10);
 }
+
+// 墙钟毫秒: 把业务时区的墙上时间当 UTC 读出来的毫秒数, 状态页用它写 data-live-anchor
+export function wallClockMs(date = new Date()) {
+  return date.getTime() + CHINA_OFFSET_MS;
+}
+
+// 业务时区当天 00:00:00(统计窗口下界)
+export function beijingMidnight(date = new Date()) {
+  const shifted = new Date(date.getTime() + CHINA_OFFSET_MS);
+  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())} 00:00:00`;
+}
+
+// 相对当前时刻往前 N 天的业务时区时间戳(统计窗口用: 7 天 / 30 天)
+export function beijingDaysAgo(days, date = new Date()) {
+  return beijingNow(new Date(date.getTime() - days * 86400000));
+}
