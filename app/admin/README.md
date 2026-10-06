@@ -109,6 +109,23 @@ DELETE FROM admin_users;   -- 清掉全部管理员(通常只有 1 个)
 | 素材库治理 | `os.walk` 扫本地目录 + 15 秒进程内扫描缓存 | **R2 列举**（无进程内缓存，每次真扫元信息）；占用统计分"原文件"与"派生缩略图"两栏 |
 | 素材删除 | `os.remove`（同样不可恢复） | R2 `delete`（无回收站）；同样"有引用一律拒绝 + 服务端确认页" |
 
+## 四·五、三处实现约定（改这里之前先读）
+
+| 约定 | 为什么 | 改哪里 |
+|---|---|---|
+| **版本号只有一个来源**：`main.js` 的 `API_VERSION`；入口用 `handleAdmin(request, env, { version })` 注入，侧栏 `.ver` 与静态资源 `?v=` 都读它 | 版本号若各页自己读 env/配置，就会出现"首页正常、后台侧栏只显示一个 v"这种不一致（2026-10-06 的线上故障就是入口漏传参） | `main.js`（注入）；`lib/layout.js`（版本为空时**不渲染** `.ver`，宁可没有也不留裸 `v`） |
+| **表头要放真 HTML 必须显式声明**：`listShell` 的列支持 `{ label, html: true }`，其余一律转义 | 默认转义是安全底线；笔记列表的"全选"复选框曾因此被显示成 `&lt;input …&gt;` 源码文本 | `lib/partials.js` 的 `listShell`；调用方如 `pages/news.js` 的 `COLUMNS` |
+| **用户管理两个写操作的语义**（下表） | 它们直接对应小程序侧判定，改错会连带影响小程序 | `pages/users.js` 的 `writeSubmit` / `restoreUser` |
+
+用户管理两个写操作（与旧站 `users_admin.py` 同口径）：
+
+| 操作 | 落库 | 语义与判定依据 |
+|---|---|---|
+| **恢复账号** | `UPDATE users SET status=0, nickname='<原昵称>(已恢复)', raw_nickname='<原昵称>'`；**`deleted_at` 保留** | `status != 0` = 已注销（不能再登录）；恢复后该用户可用微信重新登录；`deleted_at` 留作"曾被注销过"的标记，列表据此显示"已恢复"。**与对外 `/user/deleted_account_action` 的 restore 不同**：那个给小程序用，会换 token 并清 `deleted_at` |
+| **设为 / 取消内部测试** | `UPDATE users SET is_trusted = 1 / 0` | `users.is_trusted`（1=内部测试）就是判定依据，小程序侧四处生效：① 专题视频可见（`app/api/content.js` 仅 `is_trusted=1` 才下发 `video_url`）；② 留言免审（`app/api/news.js` 里 `is_trusted=1` 直接 `approved`，否则 `pending`）；③ 登录载荷带 `is_trusted`（`app/api/user.js`）供前端区分；④ 菜单 `app_menu_items.trusted_only`（`app/api/app_config.js`）的"仅内部测试可见" |
+
+两个按钮都是：仅超管可见（`actionCell` 判 `isSuper`，另有 `entities.SUPER_ONLY_WRITE_PATHS` 的 `/admin/users` 拦一道）→ 点击先 `confirm()` → `POST /admin/users`（`action=set_trusted|remove_trusted|restore_user` + `user_id`）→ 成功 302 回列表并带 `message`（整页刷新即最新状态），失败带 `error` 显示在页面顶部。
+
 ## 五、样式与脚本怎么改
 
 原件在 `app/admin/static/`，Worker 读的是 `app/admin/assets/static-assets.js`（生成物）。改了原件后重新生成：
@@ -126,7 +143,7 @@ cd app\api-cf
 
 ## 六、本地怎么测
 
-- `cd app/api-cf && node --test`：**142 条**用例，覆盖三件套(权限归类/工厂/工具)、外壳(守卫/状态切换/宏)、
+- `cd app/api-cf && node --test`：**147 条**用例，覆盖三件套(权限归类/工厂/工具)、外壳(守卫/状态切换/宏/版本号注入)、
   全部页面模块的端到端（列表/片段/编辑/删除/上传/预览）、数据库工具与素材治理两页的闸门与判定、对外接口的契约定档。
 - `node tools/live_smoke.mjs`：真实库结构与数据下的对外接口端到端（后台改动不该影响它）。
 - 浏览器实测：可以用内存桩起一个本地预览服务（把 `handleAdmin` 接到 `http.createServer`），

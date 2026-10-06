@@ -154,9 +154,12 @@ export function mediaLibraryModal() {
 // 分页列表骨架(与旧站 banner_manage.html 同结构): 顶部按钮 + 统计条 + 表格 + 触底哨兵 + 底部工具栏
 export function listShell(options = {}) {
   const columns = (options.columns || []).map((column) => {
-    const label = typeof column === 'string' ? column : column.label;
-    const className = typeof column === 'string' ? '' : (column.className || '');
-    return `<th scope="col"${className ? ` class="${className}"` : ''}>${escapeHtml(label)}</th>`;
+    const isObject = column !== null && typeof column === 'object';
+    const label = isObject ? column.label : column;
+    const className = isObject ? (column.className || '') : '';
+    // 默认一律转义; 需要表头放真 HTML(如"全选"复选框)时显式写 { html: true }, 由调用方保证内容安全
+    const text = isObject && column.html ? String(label || '') : escapeHtml(label);
+    return `<th scope="col"${className ? ` class="${className}"` : ''}>${text}</th>`;
   }).join('');
   const totalPages = Number(options.totalPages) || 1;
   const sentinel = totalPages > 1

@@ -27,7 +27,11 @@ const BATCH_MAX = 200;
 // 列表只取展示真正用到的列: 别把每行 20KB 的正文也拉回来(旧站为此改过一版)
 const LIST_COLUMNS = 'id, title, "desc", category, image, publish_time, status, type, view_count, likes, favorites';
 const RECYCLE_COLUMNS = 'id, title, category, image, status, type, publish_time, deleted_at';
-const COLUMNS = ['<input type="checkbox" id="rowCheckAll" aria-label="全选">', 'ID', '标题', '分类', '封面', '状态', '浏览/点赞/收藏', '发布时间', '操作'];
+// 首列是批量操作的"全选"复选框: 走 listShell 的 { html: true } 列, 否则会被转义成源码文本
+const COLUMNS = [
+  { label: '<input type="checkbox" id="rowCheckAll" aria-label="全选">', html: true },
+  'ID', '标题', '分类', '封面', '状态', '浏览/点赞/收藏', '发布时间', '操作'
+];
 const RECYCLE_COLUMNS_HEAD = ['ID', '封面', '标题', '来源', '分类', '删除时间', '操作'];
 
 function listWhere(query) {

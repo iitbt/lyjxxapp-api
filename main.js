@@ -24,7 +24,7 @@ import { registerUserRoutes } from './app/api/user.js';
 // 版本号(**唯一来源**): 与旧站 fastapi/main.py 的 APP_VERSION 同一处 ——
 // 状态页 / /health/ready / /apitest 展示它, 后台静态资源的 ?v= 缓存键也用它。
 // 改版本只改这一行; wrangler.toml 里不再有 API_VERSION, 也不再有第二份默认值。
-export const API_VERSION = '2.1.1';
+export const API_VERSION = '2.1.2';
 
 // ==== 路由装配(对应旧站 main.py 的 include_router 段) ====
 const router = createRouter();
@@ -78,8 +78,9 @@ export default {
     if (request.method === 'OPTIONS') return preflight(requestId, corsHeaders);
 
     // 管理后台: 整个 /admin 前缀交给 admin/(不进对外 33 条路由表)
+    // 版本号必须在这里注入: 后台侧栏与静态资源 ?v= 都读 ctx.version, 漏传就会显示成空的"v"
     if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) {
-      return withHeaders(await handleAdmin(request, env), requestId, corsHeaders);
+      return withHeaders(await handleAdmin(request, env, { version: API_VERSION }), requestId, corsHeaders);
     }
 
     if (url.pathname.startsWith('/images/')) {

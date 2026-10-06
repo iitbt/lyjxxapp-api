@@ -44,6 +44,14 @@ test('用户写操作: 设为内部测试 / 删除用户(级联) / 恢复账号'
   assert.equal(trusted.status, 302);
   assert.ok(trusted.headers.get('location').includes(encodeURIComponent('已成功设置为内部测试用户')));
 
+  // 列表里的两个按钮都要能提交, 且先弹确认(超管才看得到)
+  const listEnv = makeAdminEnv({ rows: { users: [USER_ROW] }, counts: { users: 1 } });
+  const listCookie = await loginCookie(listEnv.env);
+  const listHtml = await (await get('/admin/users', listEnv.env, listCookie)).text();
+  assert.ok(listHtml.includes('name="action" value="set_trusted"'), '按钮要把 action 提交上去');
+  assert.ok(listHtml.includes('onclick="return confirm('), '设为/取消内部测试都要先确认');
+  assert.ok(listHtml.includes('设为内部测试用户？设置后可查看专题视频'), '确认文案要写清权限范围');
+
   const restored = await post('/admin/users', { action: 'restore_user', user_id: '7' }, env, cookie);
   assert.ok(restored.headers.get('location').includes(encodeURIComponent('账号已恢复')));
   const restoreSql = findCall(state, /UPDATE users SET status=0, nickname=\?/i);
@@ -122,6 +130,9 @@ test('笔记列表: 复选框列 + 批量区 + 回收站入口', async () => {
   const cookie = await loginCookie(env);
   const html = await (await get('/admin/news_manage', env, cookie)).text();
   assert.ok(html.includes('rowCheck'));
+  // 表头复选框必须是真控件: 曾经被 listShell 转义, 页面上显示成一段源码文本
+  assert.ok(html.includes('<th scope="col"><input type="checkbox" id="rowCheckAll" aria-label="全选"></th>'));
+  assert.ok(!html.includes('&lt;input'), '列表页不应出现被转义的 input 源码');
   assert.ok(html.includes('batchForm'));
   assert.ok(html.includes('回收站'));
   assert.ok(html.includes('设为显示'));

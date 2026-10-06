@@ -48,7 +48,9 @@ function alerts(message, error) {
 
 export function adminLayout(options = {}) {
   const title = options.title || '控制面板';
-  const version = encodeURIComponent(String(options.version || ''));
+  // 版本号只有一个来源(main.js 的 API_VERSION, 由入口注入到 ctx); 万一没注入, 也**不要**渲染出空的"v"
+  const rawVersion = String(options.version || '');
+  const version = encodeURIComponent(rawVersion);
   const isSuper = options.isSuper === true;
   return `<!doctype html>
 <html lang="zh-CN">
@@ -70,7 +72,7 @@ export function adminLayout(options = {}) {
       <a class="brand" href="/admin/dashboard" title="返回控制面板">
         <i aria-hidden="true" class="bi bi-shield-check"></i>
         <span class="brand-text">狼牙笔记</span>
-        <span class="ver">v${escapeHtml(options.version || '')}</span>
+        ${rawVersion ? `<span class="ver">v${escapeHtml(rawVersion)}</span>` : ''}
       </a>
       <nav class="sidebar-nav" aria-label="后台功能菜单">${renderSidebar(options.currentPage, isSuper)}</nav>
     </div>
