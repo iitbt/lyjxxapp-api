@@ -1,0 +1,16 @@
+{
+  "name": "lyjxxapp-api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local",
+    "test": "node --test",
+    "schema:local": "wrangler d1 execute lyjxxapp-d1 --local --file=app/sql/0001_schema.sql && wrangler d1 execute lyjxxapp-d1 --local --file=app/sql/0002_rate_limit.sql && wrangler d1 execute lyjxxapp-d1 --local --file=app/sql/0003_wechat_token.sql && wrangler d1 execute lyjxxapp-d1 --local --file=app/sql/0004_admin.sql",
+    "schema:remote": "wrangler d1 execute lyjxxapp-d1 --remote --file=app/sql/0001_schema.sql && wrangler d1 execute lyjxxapp-d1 --remote --file=app/sql/0002_rate_limit.sql && wrangler d1 execute lyjxxapp-d1 --remote --file=app/sql/0003_wechat_token.sql && wrangler d1 execute lyjxxapp-d1 --remote --file=app/sql/0004_admin.sql",
+    "secrets:put": "wrangler secret bulk .secrets.json",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4"
+  }
+}

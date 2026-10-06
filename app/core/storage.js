@@ -1,0 +1,149 @@
+// 素材存储(R2) —— 对照旧站 app/core/storage.py
+//
+// 旧站 storage.py 管三件事: 目录扫描(素材清单)、删除文件、路径归一化; 素材治理页与素材库弹窗都调它,
+// 所以"素材清单只有一份实现"是旧站的硬约定(media_admin.py 头注释: 引用判定也只有一个来源)。
+// Cloudflare 侧对应关系:
+//   os.walk(目录)      → env.MEDIA.list({ prefix, cursor })
+//   os.remove(文件)    → env.MEDIA.delete(key)
+//   文件 mtime/size    → 对象 uploaded/size
+import { MAX_SCAN_OBJECTS } from './overview.js';
+
+//: 素材在库内的相对记录值前缀(与旧站 storage.NEWS_DIR_NAME 一致)
+export const NEWS_PREFIX = 'news_uploads/';
+
+//: 可列举的图片/视频扩展名(与旧站 storage.LISTABLE_*_EXTS 同口径)
+export const LISTABLE_IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'];
+export const LISTABLE_VIDEO_EXTS = ['mp4', 'mov', 'm4v', 'webm', 'mkv', 'ts', 'm3u8', '3gp', 'avi', 'flv', 'wmv', 'f4v'];
+
+export function extOf(name) {
+  const text = String(name || '');
+  const dot = text.lastIndexOf('.');
+  return dot < 0 ? '' : text.slice(dot + 1).toLowerCase();
+}
+
+/** 扩展名 → 'video' | 'image' | ''(与旧站 kind 判定一致, 顺序: 先视频)。 */
+export function kindOfExt(ext) {
+  const value = String(ext || '').toLowerCase();
+  if (LISTABLE_VIDEO_EXTS.includes(value)) return 'video';
+  if (LISTABLE_IMAGE_EXTS.includes(value)) return 'image';
+  return '';
+}
+
+/** 枚举 kind 对应的扩展名白名单(素材库弹窗的 accept 用)。 */
+export function listableExts(kind) {
+  return kind === 'video' ? LISTABLE_VIDEO_EXTS : LISTABLE_IMAGE_EXTS;
+}
+
+/**
+ * 素材清单: 只列 news_uploads/ 下的原始文件(跳过 _thumb/ 派生文件), 按修改时间倒序。
+ *
+ * 为什么分页: R2 单次 list 上限 1000; 旧站扫描也有 _MAX_SCAN_FILES 上限, 两边都只"尽量数清",
+ * 数不清时返回 truncated=true 让页面标注"至少这么多", 不编数字。
+ */
+export async function listNewsMedia(env, kind = 'image', options = {}) {
+  const max = options.max || MAX_SCAN_OBJECTS;
+  const wanted = kind === 'video' ? 'video' : 'image';
+  let cursor;
+  let truncated = false;
+  const items = [];
+  try {
+    // 逐页拉取: 单次 1000 上限, 直到取够 max+1 或没有 next 游标
+    for (let round = 0; round < 5; round += 1) {
+      const listed = await env.MEDIA.list({ prefix: NEWS_PREFIX, limit: 1000, cursor });
+      const objects = (listed && listed.objects) || [];
+      for (const object of objects) {
+        const key = String(object.key || '');
+        if (!key || key.includes('/_thumb/')) continue;
+        if (kindOfExt(extOf(key)) !== wanted) continue;
+        items.push({
+          path: key,
+          name: key.slice(NEWS_PREFIX.length),
+          size: Number(object.size) || 0,
+          mtime: object.uploaded ? new Date(object.uploaded).getTime() : 0,
+          uploaded: object.uploaded || ''
+        });
+      }
+      cursor = listed && listed.truncated ? listed.cursor : undefined;
+      if (!cursor || items.length > max) break;
+    }
+  } catch (error) {
+    console.error('列举素材失败', error && error.message);
+    return { items: [], total: 0, truncated: false, failed: true };
+  }
+  items.sort((a, b) => b.mtime - a.mtime || a.name.localeCompare(b.name));
+  truncated = items.length > max;
+  const used = truncated ? items.slice(0, max) : items;
+  return { items: used, total: used.length, truncated, failed: false };
+}
+
+/** R2 素材占用(与系统信息/素材治理页共用一个口径)。 */
+export async function mediaUsage(env) {
+  const listed = await listNewsMedia(env, 'image');
+  const videos = await listNewsMedia(env, 'video');
+  if (listed.failed && videos.failed) {
+    return { count: 0, bytes: 0, truncated: false, failed: true };
+  }
+  const all = listed.items.concat(videos.items);
+  let bytes = 0;
+  for (const item of all) bytes += Number(item.size) || 0;
+  return {
+    count: all.length,
+    bytes,
+    truncated: Boolean(listed.truncated || videos.truncated),
+    failed: false
+  };
+}
+
+/** 删除素材对象(调用方必须先做完引用检查 —— 删了不可恢复)。 */
+export async function removeMediaFile(env, relativePath) {
+  const key = normRel(relativePath);
+  if (!key || key.includes('..')) return false;
+  await env.MEDIA.delete(key);
+  return true;
+}
+
+/**
+ * 把"可能装着素材路径的字符串"规整成库内相对记录值; 不是素材则返回空串。
+ *
+ * 库里同一个素材有几种历史形态, **必须先归一化再比较**(旧站 storage/media_admin 同口径):
+ *   news_uploads/a.png / /news_uploads/a.png / https://host/news_uploads/a.png /
+ *   <wx-video src="news_uploads/a.mp4">…(富文本里的一段)
+ */
+export function normRel(value) {
+  let text = String(value === undefined || value === null ? '' : value).trim().replace(/^["']|["']$/g, '');
+  if (!text) return '';
+  text = text.split('?')[0].split('#')[0].replace(/\\/g, '/');
+  const at = text.indexOf(NEWS_PREFIX);
+  if (at > 0) text = text.slice(at);
+  text = text.replace(/^\/+/, '');
+  if (!text.startsWith(NEWS_PREFIX) || text.includes('..')) return '';
+  return text;
+}
+
+//: 从富文本 HTML 里抽素材路径: 只认 news_uploads/ 开头、到引号/空白/尖括号/括号为止的一段
+const RICH_PATH_RE = /news_uploads\/[^\s"'<>()[\]{},;]+/gi;
+
+/** 从一个字段值里抽出**所有**素材相对记录值(富文本可能引用多个)。 */
+export function relPathsIn(value) {
+  const text = String(value === undefined || value === null ? '' : value);
+  if (!text || !text.includes(NEWS_PREFIX)) return [];
+  if (text.includes('<') || text.includes('>')) {
+    return RICH_PATH_RE_SAFE(text).map(normRel).filter(Boolean);
+  }
+  const one = normRel(text);
+  return one ? [one] : [];
+}
+
+// 每次调用重置 lastIndex, 避免全局正则跨次匹配出现漏项
+function RICH_PATH_RE_SAFE(text) {
+  RICH_PATH_RE.lastIndex = 0;
+  return Array.from(text.matchAll(RICH_PATH_RE), (match) => match[0]);
+}
+
+/** 预览/下载用的绝对地址由 media_scheme 负责, 这里只做 key 到公开 URL 的拼接(公开域)。 */
+export function publicUrl(mediaBase, relativePath) {
+  const base = String(mediaBase || '').replace(/\/+$/, '');
+  const key = String(relativePath || '').replace(/^\/+/, '');
+  if (!base || !key) return '';
+  return `${base}/${key}`;
+}

@@ -1,0 +1,451 @@
+@charset "UTF-8";
+/* 后台管理页面统一样式(唯一实现): 由 base.html 的内联 <style> 抽出;
+   页面级样式请写在各模板的 {% block head %} 里, 不要再散落内联 style。 */
+:root {
+    --sbw: 240px;          /* 侧边菜单(抽屉)宽度 */
+    --shell-max: 100%;     /* 内容占满整个宽度，不再居中留白 */
+    --radius: 14px;        /* 卡片圆角 */
+    /* 4.3: 主色与 bootstrap 的 --bs-primary 同源(改主题只需改一处, 不再两份色值) */
+    --accent: var(--bs-primary, #2563eb);
+  }
+  html { height: 100%; }
+  body {
+    background: #edf1f7; color: #1e293b;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  }
+  /* 侧边栏常驻(2026-09-19 恢复): 菜单占左侧一栏, 内容区占剩余宽度;
+     只有小屏(≤767.98px)才把它降级成抽屉浮层, 见下方媒体查询。 */
+  .app-shell { display: flex; align-items: stretch; width: 100%; min-height: 100vh;
+               max-width: var(--shell-max); margin: 0 auto; }
+  /* ============ 侧边菜单栏 ============ */
+  .sidebar {
+    position: sticky; top: 0;
+    flex: 0 0 var(--sbw); width: var(--sbw);
+    height: 100vh; min-height: 100vh;
+    background: linear-gradient(180deg, #0f172a, #1a2744 55%, #0f172a);
+    color: #cbd5e1;
+    display: flex; flex-direction: column;
+    overflow-y: auto; overflow-x: hidden; z-index: 1000;
+  }
+  .sidebar::-webkit-scrollbar { width: 6px; }
+  .sidebar::-webkit-scrollbar-track { background: transparent; }
+  .sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,.16); border-radius: 3px; }
+  .sidebar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.3); }
+  .sidebar-inner { width: 100%; margin: 0; } /* 菜单不做垂直居中，紧贴顶部 */
+  .brand {
+    display: flex; align-items: center; gap: 8px;
+    color: #fff; font-weight: 600; font-size: 16px; text-decoration: none;
+    padding: 15px 14px 13px; margin: 0 12px 8px;
+    border-bottom: 1px solid rgba(255,255,255,.08); white-space: nowrap;
+  }
+  .brand:hover { color: #fff; }
+  .brand .bi { font-size: 18px; color: #60a5fa; flex-shrink: 0; }
+  .brand-text { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .brand .ver {
+    margin-left: auto; font-size: 11px; font-weight: 400; flex-shrink: 0;
+    background: rgba(255,255,255,.08); padding: 1px 7px; border-radius: 20px; color: #93c5fd;
+  }
+  /* 父菜单(分组标题) —— 抽屉开关: 沿用 .nav-cat 原有的字号/间距/分隔线风格,
+     只把它从"纯标题 div"改成可点击的 button(并补一个展开指示箭头)。 */
+  .nav-group { display: flex; flex-direction: column; }
+  .nav-cat {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    width: calc(100% - 24px);
+    font-size: 11px; font-weight: 600; letter-spacing: .08em;
+    color: #8494b4; margin: 11px 12px 4px; padding: 7px 10px 7px 2px;
+    background: none; text-align: left; cursor: pointer; border: 0;
+    border-top: 1px solid rgba(255,255,255,.06); border-radius: 8px;
+    transition: color .15s, background .15s;
+  }
+  .nav-cat:hover { color: #e2e8f0; background: rgba(255,255,255,.05); }
+  .nav-cat:focus-visible { outline: 2px solid #60a5fa; outline-offset: -2px; }
+  .nav-cat .nav-cat-caret { font-size: 11px; flex-shrink: 0; transition: transform .18s ease; }
+  .nav-group.open .nav-cat { color: #e2e8f0; }
+  .nav-group.open .nav-cat .nav-cat-caret { transform: rotate(180deg); }
+  .nav-group:first-child .nav-cat { border-top: 0; padding-top: 2px; margin-top: 0; }
+  /* 子菜单抽屉: 默认 max-height:0 收起, 父菜单展开时滑出。
+     每组独立开关 —— 同层可以同时展开多个, 互不影响(2026-09-20 由手风琴改为多开)。 */
+  .nav-group-items {
+    display: flex; flex-direction: column; gap: 3px;
+    max-height: 0; overflow: hidden;
+    /* visibility 一并切换: 收起时子项不进入 Tab 顺序, 键盘用户不会"跳进看不见的菜单" */
+    visibility: hidden;
+    transition: max-height .22s ease, visibility .22s ease, padding .22s ease;
+  }
+  .nav-group.open .nav-group-items { max-height: 640px; visibility: visible; padding: 2px 0 6px; }
+  /* 首帧恢复分组状态期间(见 head 的 SidebarGroups + 侧栏标记之后那次 restore)关掉过渡:
+     跳转/刷新后由脚本把"应该展开"的组直接置为展开, 若带过渡就会从 0 动画长出来 ——
+     用户看到的就是"已展开的菜单先收起、再重新展开"。两条规则都写在 .open 之后,
+     同权重下后者生效, 不需要 !important。 */
+  .sidebar.sb-restoring .nav-group-items,
+  .sidebar.sb-restoring .nav-cat .nav-cat-caret { transition: none; }
+  /* 当前页所在分组: 父菜单提亮, 让"我在这一组"在多个分组同时展开时依然一眼可见 */
+  .nav-group.has-active > .nav-cat { color: #fff; background: rgba(96,165,250,.1); }
+  .sidebar-nav { display: flex; flex-direction: column; gap: 3px; padding: 2px 12px 18px; }
+  .sidebar-nav a {
+    position: relative; display: flex; align-items: center; gap: 10px;
+    color: #cbd5e1; text-decoration: none;
+    padding: 9px 12px; font-size: 14px; line-height: 1.4; white-space: nowrap;
+    border-radius: 9px; transition: background .15s, color .15s;
+  }
+  .sidebar-nav a .bi { font-size: 15px; width: 18px; text-align: center; color: #94a3b8; flex-shrink: 0; }
+  .sidebar-nav a .nav-label { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .sidebar-nav a:hover { background: rgba(255,255,255,.07); color: #fff; }
+  .sidebar-nav a:hover .bi { color: #bfdbfe; }
+  .sidebar-nav a:focus-visible { outline: 2px solid #60a5fa; outline-offset: -2px; }
+  /* 跳转到主内容: 默认移出屏幕, 键盘聚焦时才显示(无障碍基础项) */
+  .skip-link {
+    position: fixed; top: -60px; left: 12px; z-index: 1100;
+    background: #2563eb; color: #fff; padding: 8px 14px; border-radius: 8px;
+    text-decoration: none; transition: top .15s ease;
+  }
+  .skip-link:focus { top: 12px; color: #fff; outline: 2px solid #fff; }
+  .sidebar-nav a.active {
+    background: linear-gradient(90deg, var(--accent), #3b82f6); color: #fff;
+    box-shadow: 0 6px 14px rgba(37,99,235,.32);
+  }
+  .sidebar-nav a.active::before {
+    content: ""; position: absolute; left: 0; top: 8px; bottom: 8px;
+    width: 3px; border-radius: 2px; background: #fff; opacity: .9;
+  }
+  .sidebar-nav a.active .bi { color: #fff; }
+  /* ============ 内容区 ============ */
+  .content { flex: 1 1 auto; min-width: 0; min-height: 100vh;
+             display: flex; flex-direction: column;
+             padding: 18px clamp(14px, 2vw, 28px) 56px; }
+  .content-wrap { width: 100%; margin: 0; } /* 内容不做垂直居中，紧贴顶部 */
+  .topbar { flex: 0 0 auto; background: #fff; border: 1px solid rgba(226,232,240,.8);
+            border-radius: 12px; padding: 9px 16px; box-shadow: 0 1px 2px rgba(15,23,42,.04);
+            display: flex; justify-content: space-between; align-items: center;
+            gap: 12px; margin-bottom: 18px; }
+  .topbar h5 { font-weight: 600; font-size: 17px; }
+  .topbar .btn { display: inline-flex; align-items: center; justify-content: center; }
+  .sidebar-backdrop {
+    position: fixed; inset: 0; z-index: 999; background: rgba(15,23,42,.45);
+    opacity: 0; pointer-events: none; transition: opacity .2s ease;
+  }
+  body.sidebar-open { overflow: hidden; }
+  body.sidebar-open .sidebar-backdrop { opacity: 1; pointer-events: auto; }
+  /* ============ 卡片/表单/按钮统一 ============ */
+  .card { border: 0; border-radius: var(--radius);
+          box-shadow: 0 1px 2px rgba(15,23,42,.05), 0 2px 8px rgba(15,23,42,.04); }
+  /* C3: 以前这里是全仓唯一一处 !important(压 bootstrap 的 .card-header 圆角)。
+     改用"更高的选择器权重" .card > .card-header 即可正常覆盖, 不需要 !important。 */
+  .card > .card-header { background: #fff; padding: 13px 18px; border-bottom: 1px solid #f1f5f9;
+                         border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0;
+                         font-size: 15px; }
+  .card-body { padding: 18px; }
+  .btn { border-radius: 8px; }
+  .btn-sm { border-radius: 7px; }
+  .form-control, .form-select { border-radius: 8px; }
+  .form-label { font-weight: 600; color: #334155; font-size: .9rem; margin-bottom: .35rem; }
+  .form-check-input { cursor: pointer; }
+  .badge { font-weight: 500; line-height: 1.6; }
+  .nav-pills .nav-link { color: #475569; border-radius: 20px; padding: .42rem 1rem; }
+  .nav-pills .nav-link.active { background: var(--accent); }
+  .alert { border: 0; border-radius: 10px; }
+  .modal-content { border: 0; border-radius: 16px;
+                   box-shadow: 0 20px 60px rgba(15,23,42,.25); }
+  .table thead th { background: #f8fafc; color: #334155; font-size: .8rem; font-weight: 600;
+                    letter-spacing: .02em; border-bottom: 1px solid #e9edf3;
+                    white-space: nowrap; padding: .72rem .8rem; }
+  .table td { padding: .72rem .8rem; vertical-align: middle; }
+  .table-hover tbody tr { transition: background .12s; }
+  .table-hover tbody tr:hover { background: #f4f8ff; }
+  .table-responsive { width: 100%; }
+  .prewrap { white-space: pre-wrap; word-break: break-word; }
+  .action-cell { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .action-cell form { margin: 0; }
+  /* C4: clamp-xs / clamp-xl 全仓无引用(已确认), 删掉; 保留在用的 sm/md/lg */
+  .clamp-sm { max-width: 160px; }
+  .clamp-md { max-width: 240px; }
+  .clamp-lg { max-width: 360px; }
+  /* ============ 封面图片统一规范(全后台通用) ============ */
+  .cover-thumb, .cover-preview, .cover-detail { object-fit: cover; object-position: center;
+    border-radius: 6px; background-color: #f1f5f9; }
+  .cover-thumb { width: 128px; height: 72px; }
+  .cover-preview { width: 288px; height: 162px; }
+  .cover-detail { display: block; width: 100%; max-width: 640px; aspect-ratio: 16 / 9; margin: 0 auto; }
+  /* 素材预览(2026-09-23 / v2.3.5, 删除确认页用): 与上面 .cover-* 同一套观感(圆角+浅底色),
+     但 **不裁切**(object-fit: contain) —— 这是"看清即将删除的文件", 不是封面展示,
+     所以不能像 .cover-detail 那样按 16/9 裁掉边缘。图片与视频共用这一个类。 */
+  .media-preview { display: block; width: 100%; max-width: 640px; max-height: 420px;
+    object-fit: contain; border-radius: 6px; background-color: #f1f5f9; }
+  .desc-cell { max-width: 300px; min-width: 140px; }
+  @media (min-width: 1600px) { .desc-cell { max-width: 430px; } }
+  .desc-cell div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stat-num { font-size: 26px; font-weight: 700; color: #0f172a; }
+  /* 小屏(≤767.98px)的适配规则**全部**集中在文件末尾的「手机端适配层」——
+     原先这里那份"菜单降级为抽屉浮层"也已并入其中。集中一处的原因:
+       ① 手机覆盖要与上面的组件默认值(.col-actions / .jump-input / .cover-thumb …)**同权重且靠后**
+          才能生效; 写在文件中部会被后面的同名规则盖掉(同权重后者赢)。
+       ② 只有一个地方要改, 不必在两处之间来回找。 */
+
+/* ================= 全后台组件类(2026-09-20, 样式统一) ================= */
+/* 跳页输入框(原先 7 处内联 style="width:84px") */
+.jump-input { width: 84px; }
+/* 列表操作列(原先 5 档内联 min-width) */
+.col-actions { min-width: 300px; }
+/* 需要收缩的单元格(原先内联 min-width:0) */
+.col-shrink { min-width: 0; }
+/* 详情表行首标签列(原先内联 width:160px) */
+.th-rowlabel { width: 160px; }
+/* 长文本单元格(原先内联 max-width:420px) */
+.cell-clamp-lg { max-width: 420px; }
+/* 工具/详情页统一页头(标题 + 右侧操作) */
+.admin-page-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+.admin-page-head h1 { font-size: 1.1rem; margin: 0; }
+.admin-page-head .btn { flex-shrink: 0; }
+
+/* 富文本编辑器容器(原先 news_edit.html 内联) */
+.rich-editor { min-height: 380px; background: #fff; z-index: 0; }
+
+/* 编辑器「点击热区」补满(2026-09-23 / 后端 v2.2.8)。
+   现象: 只有点在文字区里才能输入、工具栏按钮才点亮; 点在容器下方那片空白上毫无反应。
+   根因(无头实测 wangEditor 5.1.23, 见下方数据): 编辑器自带 CSS 是一串百分比 ——
+        `.w-e-text-container{height:100%}` → `.w-e-scroll{height:100%}` →
+        `[data-slate-editor]{min-height:100%}`, 而百分比要生效必须**父元素高度确定**;
+        本项目 .rich-editor 用的是 `min-height:380px`(手机 280px), 父元素高度是 auto,
+        于是百分比一路退化成 auto —— 实测容器 382px, 而这三层**都只有 40px**,
+        剩下的 340px 由 #contentEditor 自己接着; 该处 elementFromPoint 命中的正是
+        #contentEditor, 点到它 Slate 不会聚焦, 所以"点空白没反应"。
+        (另实测: 只给文字容器写 `height:100%` **无效**, 因为父元素仍是 auto。)
+   改法: 把父容器到可编辑层连成一条 **flex 纵向链**, 用 flex 分配剩余空间补齐 min-height
+        留出的空白。flex 项的基底仍按内容算, 所以内容变长时整条链一起长高, 不会出现
+        内滚动条(实测 40 段: 容器 1578px, 无内滚动条)。
+   实测结果: 底部 8px 处的命中元素 由 #contentEditor 变为可编辑层 #w-e-textarea-1;
+        桌面 382→可编辑层 380、手机 282→可编辑层 280, 三段全满。
+   注意: 这四个选择器都用 #contentEditor 前缀(与下面"正文排版"那组同一约定), 以压过
+        CDN 自带样式的 `.w-e-text-container{height:100%}`。 */
+#contentEditor { display: flex; flex-direction: column; }
+#contentEditor > .w-e-text-container { display: flex; flex-direction: column; flex: 1 1 auto; }
+#contentEditor > .w-e-text-container > .w-e-scroll { display: flex; flex-direction: column; flex: 1 1 auto; }
+#contentEditor > .w-e-text-container > .w-e-scroll > [data-slate-editor] { flex: 1 1 auto; }
+/* 素材库列表里的图片缩略图(2026-09-23): 图片与视频共用同一行结构, 只多这一张小图。
+   固定 40×40 并 object-fit: cover, 避免长宽比各异的素材把行高撑得参差不齐。 */
+.media-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 4px;
+               background: #f5f5f5; flex-shrink: 0; }
+/* 页面底部操作按钮组: 居中(2026-09-23 需求一)。
+   预览页的两个「返回」按钮用它居中; 抽到共用样式, 各页不必再各写一份 flex 组合。 */
+.page-actions-center { display: flex; flex-wrap: wrap; justify-content: center; gap: .5rem; }
+/* 上传进度浮层(2026-09-20): 富文本插图这类"没有行内进度位置"的上传场景用右下角浮层;
+   有行内容器的(封面/图标弹窗)用 _image_upload_field.html 里的进度条, 不走这里。
+   z-index 取 1080: 高于模态框(1055), 低于 bootstrap 提示层(1090)。 */
+.upload-progress-float { position: fixed; right: 1rem; bottom: 1rem; z-index: 1080; width: 260px; }
+/* 窄操作列(数据库表列表) */
+.col-actions-sm { width: 180px; }
+/* 详情表窄标签列 */
+.th-rowlabel-sm { width: 120px; }
+
+/* ================= 富文本「小程序尺度」统一层(唯一实现, 2026-09-23 / 后端 v2.2.5) =================
+   服务对象: 预览页(/admin/news_preview 的手机框) 与 编辑页(/admin/news_edit 的富文本框架)。
+   为什么抽到这里: 以前预览的宽度/字号写在自己页面的内联 <style> 里、编辑页另写一套,
+   两边必然各自漂移(改一处漏一处)。现在**尺度只在下面两行变量里定义一次**, 两页共用。
+
+   尺度来源: 小程序详情页按 750rpx = 375px 设计(1rpx = 0.5px)。
+   框架宽度现为 **800px**, 字号按**同一倍率**放大 —— 所以下面的字号仍写成
+   「原设计值 × var(--mp-scale)」, 换算关系在代码里可见:
+     --mp-w      框架宽度(预览与编辑共用)
+     --mp-scale  字号倍率 = --mp-w ÷ 375(设计基准宽度)。
+                 ⚠️ 改 --mp-w 必须同步改它, 两者同源由 tests/review_guard_test.py 断言
+                 (忘改会在测试里直接失败, 而不是"悄悄变形")。
+   媒体规则(需求: 视频/图片不得超出框架):
+     · 图片: 预览里撑满容器, 编辑区里 wangEditor 自带 max-width:100%, 这里再兜一层;
+     · 视频: 统一 16:9 盒 + object-fit:cover, 与小程序 .video-box--ratio 的 padding-bottom:56.25% 等效
+      (FE-13, 2026-09-29: 小程序侧原 .video-container 已改名 —— 详情页的 16:9 盒子叫
+       .video-box--ratio, 户外/摩旅的固定高盒子叫 .video-box--fixed, 同名不同义已消除)。
+       编辑区尤其需要: wangEditor 的视频节点带 width="auto", 不限定就按**原始像素宽**渲染, 会撑破框架。 */
+:root { --mp-w: 800px; --mp-scale: 2.13333; }   /* 800 ÷ 375 = 2.13333 */
+
+/* ---- 框架: 预览页 .mp-preview 与编辑页的富文本框架同宽、同居中 ---- */
+.mp-frame { width: var(--mp-w); max-width: 100%; margin: 0 auto; }
+
+/* ---- 栅格列上的"同宽"(2026-09-23 / v2.2.6): 编辑页的字段列也用 .mp-frame ----
+   为什么还要这一条而不是光加 width:
+     `.col-lg-8` 自己会写 `width: 66.67%` **并且** `max-width: 66.67%`(≥992px) ——
+     只改 width 会被它的百分比上限卡住(改前实测: 1904 视口下列宽 1049px 而不是 800px)。
+     这里用双类选择器(权重 0,2,0 压过栅格的 0,1,0), 因此与文件加载顺序无关;
+     Bootstrap 的 `flex: 0 0 auto` 也一并接过来, 让列按 800px 固定尺寸参与 flex 布局。
+   `max-width: 100%` 来自 .mp-frame: 手机端容器更窄时随屏收缩 —— 与改动前表现一致。
+   `padding-inline: 0` 去掉 .row 的 8px 槽内边距: 这样**列内**元素(尤其富文本框架)也正好
+   800px; 否则列内可用宽只有 784px, 编辑框架会比预览页窄 16px(因为框架的 max-width:100%)。
+   外边距不影响观感: 列外层还有 card-body 的内边距。 */
+.mp-frame.col-lg-8 {
+  flex: 0 0 auto;
+  width: var(--mp-w);
+  max-width: 100%;
+  padding-inline: 0;
+}
+.mp-frame-hint { text-align: center; font-size: calc(12px * var(--mp-scale));
+                 color: #94a3b8; margin: 0 0 6px; }
+
+/* ---- 预览页的"手机框"外观(模拟小程序卡片) ---- */
+.mp-preview { background: #f2f2f2; border-radius: 14px; padding: 8px; }
+.mp-card { background: #fff; border-radius: 6px; box-shadow: 0 1px 5px rgba(0,0,0,.1);
+           padding: 10px; overflow: hidden; }
+.mp-title { font-size: calc(18px * var(--mp-scale)); font-weight: 700; color: #333; line-height: 1.4; }
+.mp-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+           margin: 10px 0 15px; font-size: calc(12px * var(--mp-scale)); color: #666; }
+.mp-chip { background: #f2f2f2; color: #666; padding: 2px 6px; border-radius: 2px; }
+.mp-author { margin-left: auto; font-size: calc(13px * var(--mp-scale)); }
+/* 封面/副标题的小标签: 小程序详情页只在"未登录"分支展示封面, 后台单独标注一行便于审核 */
+.mp-cover-label { font-size: calc(12px * var(--mp-scale)); color: #94a3b8; margin-bottom: 4px; }
+.mp-cover { width: 100%; display: block; border-radius: 8px; background: #f5f5f5; margin-bottom: 10px; }
+/* 字段视频(主视频)与正文视频同一套 16:9 呈现 */
+.mp-video { position: relative; width: 100%; padding-bottom: 56.25%; margin: 15px 0;
+            border-radius: 4px; overflow: hidden; background: #000; }
+.mp-video video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+
+/* ---- 正文排版: 预览内容(.news-content) 与 编辑区内容(wangEditor 的可编辑区) 同源 ----
+   编辑区选择器带 #contentEditor(ID) 前缀: 页面里 wangEditor 的 CSS 来自 CDN, 引入顺序在
+   admin.css **之后**, 同权重它会赢 —— 用 ID 提高权重才能稳定覆盖它的段落间距等默认值。 */
+.news-content,
+#contentEditor .w-e-text-container [data-slate-editor] {
+  font-size: calc(15px * var(--mp-scale)); line-height: 1.7; color: #333;
+  word-break: break-word; overflow-wrap: anywhere;
+}
+.news-content p,
+#contentEditor .w-e-text-container [data-slate-editor] p { margin: .6em 0; }
+.news-content h1, .news-content h2, .news-content h3, .news-content h4,
+#contentEditor .w-e-text-container [data-slate-editor] h1,
+#contentEditor .w-e-text-container [data-slate-editor] h2,
+#contentEditor .w-e-text-container [data-slate-editor] h3,
+#contentEditor .w-e-text-container [data-slate-editor] h4 {
+  font-size: 1.15em; margin: 1em 0 .5em;
+}
+/* 图片: 两页都不许超出框架 */
+.news-content img,
+#contentEditor .w-e-text-container [data-slate-editor] img { max-width: 100%; height: auto; }
+.news-content img { width: 100%; display: block; margin: 10px 0;
+                    border-radius: 4px; background: #f5f5f5; }
+/* 视频: 两页统一 16:9 黑底盒(编辑区里覆盖 wangEditor 视频节点的 width="auto") */
+.news-content video,
+#contentEditor .w-e-text-container [data-slate-editor] video {
+  display: block; width: 100%; max-width: 100%; height: auto;
+  aspect-ratio: 16 / 9; object-fit: cover; margin: 15px 0;
+  border-radius: 4px; background: #000;
+}
+#contentEditor .w-e-textarea-video-container { max-width: 100%; }
+/* 过宽内容(表格/代码块)在框架内横向滚动, 不把整页撑宽 */
+.news-content table,
+#contentEditor .w-e-text-container [data-slate-editor] table {
+  display: block; max-width: 100%; overflow-x: auto; white-space: normal;
+}
+.news-content pre,
+#contentEditor .w-e-text-container [data-slate-editor] pre {
+  white-space: pre-wrap; word-break: break-word; overflow-x: auto;
+}
+.news-content blockquote { margin: 1em 0; padding: .5em 1em; border-left: 3px solid #ddd;
+                           color: #666; background: #fafafa; }
+
+/* ================= 手机端适配层(唯一实现, 2026-09-22 / 后端 v2.1.8) =================
+   为什么放在文件**最后**: 上面那些组件类(.col-actions / .jump-input / .th-rowlabel /
+   .cover-thumb …)是"桌面默认值", 手机覆盖要与它们**同权重、靠后**才生效; 写在文件中部
+   会被后面的同名规则盖掉(同权重后者赢)。
+   桌面端为什么不变: 本层全部规则都包在 max-width 媒体查询里, ≥768px 时**一条都不参与匹配**,
+   桌面渲染与改动前一致(自检方式见本层末尾)。
+   断点: 767.98px 与 bootstrap 的 md 对齐(侧栏抽屉、汉堡按钮也在这个断点上);
+        575.98px 再压一档, 照顾 320~575px 的窄机。
+   覆盖内容(统一处理, 各页不再各写一份):
+     ① 视口/基础  ② 侧栏抽屉  ③ 节奏与间距  ④ 触控尺寸  ⑤ 筛选条  ⑥ 表格窄屏  ⑦ 弹窗  ⑧ 长文本
+   页面专属的手机样式(如登录页的居中卡片)仍写在各模板自己的 <style> 里, 与本层不重复。 */
+@media (max-width: 767.98px) {
+  /* ---- ① 视口/基础: 系统字号不放大页面, 去掉点击时的灰色高亮 ---- */
+  html { -webkit-text-size-adjust: 100%; }
+  body { -webkit-tap-highlight-color: transparent; }
+
+  /* ---- ② 侧栏: 常驻栏在窄屏放不下 → 降级为抽屉浮层(点顶栏按钮滑出;
+         遮罩 / 菜单项 / Esc 收起由 base.html 的原生 JS 负责, 不依赖 bootstrap) ---- */
+  .app-shell { display: block; }
+  .sidebar { position: fixed; top: 0; left: 0;
+             width: min(var(--sbw), 86vw); height: 100vh; height: 100dvh;
+             transform: translateX(-105%); transition: transform .22s ease;
+             box-shadow: 0 0 30px rgba(0,0,0,.35);
+             /* 全面屏底部有手势条: 给抽屉留安全区, 最后一个菜单项不会被挡住 */
+             padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .sidebar.show { transform: none; }
+  .topbar h5 { font-size: 15px; }
+
+  /* ---- ③ 节奏与间距: 手机屏窄, 收掉桌面的大留白(同一屏能多看到内容) ---- */
+  .content { padding: 12px 12px calc(28px + env(safe-area-inset-bottom, 0px)); }
+  .topbar { flex-wrap: wrap; gap: 8px; padding: 8px 12px; margin-bottom: 12px; border-radius: 10px; }
+  .card-body { padding: 14px; }
+  .card > .card-header { padding: 11px 14px; font-size: 14px; }
+  .admin-page-head { flex-wrap: wrap; gap: 8px; }
+  .rich-editor { min-height: 280px; }
+
+  /* ---- ⑨ 纯说明文字的显隐(2026-09-23 需求三): 手机端只隐藏**显式标了属性**的说明块;
+         表单字段、校验提示、按钮一律不动(靠页面标 data-hint-mobile-hidden, 不会误伤) ---- */
+  [data-hint-mobile-hidden] { display: none !important; }
+
+  /* ---- ⑩ 预览框在手机端按"小程序真实尺寸"呈现(2026-09-23 需求一):
+         窄屏放不下 800px 的框(由 .mp-frame 的 max-width:100% 收缩), 字号也一并回到设计
+         基准倍率 1(= 750rpx 设计稿原始尺寸, 正文 15px), 否则 32px 正文在手机上没法读。
+         ⚠️ 变量只覆盖 .mp-preview 内部 —— 编辑页的富文本框架(全局 --mp-scale)不受影响。 ---- */
+  .mp-preview { --mp-scale: 1; }
+
+  /* ---- ④ 触控尺寸: 手指点得中(主按钮 ≥40px / 小按钮 ≥34px), 并消除 300ms 点击延迟 ---- */
+  .btn { min-height: 40px; }
+  .btn-sm { min-height: 34px; padding: .3rem .6rem; }
+  .btn, .nav-cat, .sidebar-nav a, .form-check-input { touch-action: manipulation; }
+  /* 16px: iOS 上输入框字号小于 16px 会在聚焦时自动放大整页 */
+  .form-control, .form-select { min-height: 44px; font-size: 16px; }
+  .form-control-sm, .form-select-sm { min-height: 38px; }
+  .form-check { padding-left: 1.9em; }                 /* 勾选框热区: 点文字也能勾上 */
+  .form-check-input { width: 1.15em; height: 1.15em; margin-top: .2em; }
+  .jump-input { width: 66px; }
+
+  /* ---- ⑤ 筛选条(列表页的 <form class="row">): 每项独占一行 —— 触控目标够大,
+         也不会把控件挤成一条缝。只匹配"直接写在 .card-body 里的 row 表单", 因此不会动
+         仪表盘/详情页里那些"一屏两列/三列"的卡片栅格(它们是 div.row, 不是 form.row)。 ---- */
+  .card-body > form.row > [class*="col-"] { flex: 1 1 100%; width: 100%; max-width: 100%; }
+
+  /* ---- ⑥ 表格窄屏: 不改"横向滚动"这一既有策略, 只把要滚的距离缩到最短 ----
+         · 表头允许折行; 取消单元格的强制不换行(否则"时间/计数"这类短列把表撑得很宽);
+         · 定死宽度的列(操作列/标签列/封面图/长文本列)按比例收窄;
+         · 单元格内边距必须用**与 bootstrap 相同的选择器形状**: `.table>:not(caption)>*>*`
+           的权重是 (0,2,0), 高于 `.table td`(0,1,1) —— 沿用旧写法这里覆盖不掉
+           (本文件上方那条 `.table td` 内边距其实一直没生效, 本层用对的方式收窄)。 */
+  .table-responsive { overscroll-behavior-x: contain; }  /* 横滑表格到头后不再带着整页一起动 */
+  .table { font-size: .84rem; }
+  .table > :not(caption) > * > * { padding: .48rem .5rem; }
+  /* .table-sm(紧凑表, 如详情预览)应比普通表更紧: 紧跟上面一条, 否则会被它的 .48rem 覆盖 */
+  .table-sm > :not(caption) > * > * { padding: .3rem .35rem; }
+  .table > thead > tr > th { white-space: normal; }
+  /* bootstrap 的 .text-nowrap 带 !important, 只能同权重覆盖: 手机端让这些短列折行 */
+  .table td.text-nowrap, .table th.text-nowrap { white-space: normal !important; }
+  .col-actions { min-width: 168px; }      /* 桌面 300px; 操作按钮本就是 flex-wrap, 两三个一行更省宽 */
+  .col-actions-sm { width: 132px; }
+  .th-rowlabel { width: 104px; }
+  .th-rowlabel-sm { width: 84px; }
+  .cover-thumb { width: 88px; height: 50px; }
+  .desc-cell { max-width: 180px; }
+  .cell-clamp-lg { max-width: 240px; }
+  .clamp-sm { max-width: 120px; }
+  .clamp-md { max-width: 160px; }
+  .clamp-lg { max-width: 220px; }
+
+  /* ---- ⑦ 弹窗: 贴边留白小一点; 底部按钮铺开, 拇指够得着、不易误触 ---- */
+  .modal-dialog { margin: .6rem; }
+  .modal-body, .modal-header, .modal-footer { padding-left: 1rem; padding-right: 1rem; }
+  .modal-footer .btn { flex: 1 1 auto; }
+
+  /* ---- ⑧ 长文本 / 代码 / SQL: 手机上没有"宽屏", 一律允许断行, 不撑破卡片 ---- */
+  code, kbd, samp, .prewrap { overflow-wrap: anywhere; }
+  .font-monospace { font-size: .84rem; }
+}
+
+/* 窄机(≤575.98px): 再压一档, 保证"一屏还能看到内容" */
+@media (max-width: 575.98px) {
+  .content { padding-left: 10px; padding-right: 10px; }
+  .cover-thumb { width: 72px; height: 41px; }
+  .clamp-lg { max-width: 180px; }
+  .stat-num { font-size: 22px; }
+  .jump-input { width: 58px; }
+}
+
+/* 桌面端不受影响的自检(改本层后请照做):
+   ① 断点守卫 —— 本层只有上面两个 @media (max-width: …) 块, ≥768px 一条都不匹配;
+   ② DevTools 分别在 1280/1440 宽与 360/414 宽截图对比, 桌面那张应与改动前一致;
+   ③ 手机复核 —— 侧栏可开合、表格可横滑、按钮点得中、筛选条不被挤压。 */

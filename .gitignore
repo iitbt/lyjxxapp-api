@@ -1,0 +1,8 @@
+# 生成物: 旧库导出与本地自检产生的中间文件(切换前重跑导出即可, 不入库)
+out/
+node_modules/
+.wrangler/
+
+# 密钥: 只提交 .example 模板, 真值文件不入库
+.secrets.json
+.dev.vars

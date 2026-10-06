@@ -1,0 +1,54 @@
+# Cloudflare 配置(对外 API, 不含管理后台)
+# 命名约定: Worker / Pages = lyjxxapp-api ; D1 = lyjxxapp-d1 ; R2 = lyjxxapp-r2
+name = "lyjxxapp-api"
+main = "main.js"
+compatibility_date = "2026-10-04"
+
+# ==== 资源绑定: 部署时 Cloudflare 按下面这些名字自动挂上 ====
+# D1: 库名固定 lyjxxapp-d1; database_id 留空时由 wrangler 首次部署按 database_name 自动建库
+[[d1_databases]]
+binding = "DB"
+database_name = "lyjxxapp-d1"
+# 部署成功后必须把控制台里的 Database ID 回填到下面这行(本地 d1 execute 与 scripts 全靠它定位库)
+# database_id = "<Database ID>"
+
+# R2: 桶名必须是 lyjxxapp-r2
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "lyjxxapp-r2"
+
+# ==== 变量(非密文): 部署时随代码一起写进 Cloudflare, 你只改值 ====
+[vars]
+# 素材对外域名(库里只存相对路径, 下发时拼这个前缀)
+MEDIA_BASE = "https://media.250036.xyz"
+# 版本号**不在这里**: 唯一来源是 main.js 的 `API_VERSION`(与旧站 fastapi/main.py 的 APP_VERSION 同位置)
+# 1 = 微信走本地假数据(联调), 0 = 真调 api.weixin.qq.com
+DEV_WECHAT_MOCK = "0"
+# 头像上传大小上限(字节), 与旧站 config.py 默认值一致(20MB)
+UPLOAD_MAX_BYTES = "20971520"
+# 1 = 开放 /apitest 探测接口, 0 = 关闭
+ENABLE_PUBLIC_PROBE = "1"
+# 1 = 开放 /metrics(最小 Prometheus 文本), 0 = 404
+OBSERVABILITY_ENABLED = "0"
+# CORS 白名单(逗号分隔): "*" = 放开(默认, 与迁移前一致); 填域名后只回白名单内的 Origin
+ALLOWED_ORIGINS = "*"
+# 1 = 开放"数据库工具 / 数据库管理"页(默认关, 与旧站 ENABLE_SQL_TOOL 同口径)
+ENABLE_SQL_TOOL = "1"
+# 管理后台(/admin): 管理员账号在 D1 的 admin_users 表(建表见 app/sql/0004_admin.sql),
+# 登录态是 HMAC 签名的 Cookie(与旧站"签名 Cookie 会话"同一套, 无服务端状态)。
+# 会话密钥 ADMIN_SESSION_SECRET 属于密文, 不写在这个文件里 —— 到 Cloudflare 控制台的
+# Variables and Secrets 里加密添加, 或用 wrangler secret put ADMIN_SESSION_SECRET。
+# 没配它时登录页会直接提示"后台未就绪"(不会用默认值放行)。
+
+# ==== 密钥(密文): 不写进仓库 ====
+# 首次或改值时: 编辑 .secrets.json(模板 .secrets.json.example, 已被 gitignore), 然后
+#   npm run secrets:put      # 等价于 wrangler secret bulk .secrets.json
+# 本地开发用 .dev.vars(模板 .dev.vars.example, 已被 gitignore)
+# 需要两个: WECHAT_APPID、WECHAT_SECRET; 想临时用假微信登录就把 DEV_WECHAT_MOCK 改成 "1"
+
+# 定时任务: 每天清一次过期的限流计数行(见 main.js 的 scheduled)
+[triggers]
+crons = ["17 3 * * *"]
+
+[dev]
+port = 8787
