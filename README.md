@@ -23,7 +23,7 @@ app/                     全部业务代码, 与 fastapi/app/ 逐层对应
 │   └── static/          旧站静态原件(生成来源与对照)
 └── sql/                 D1 建表脚本(0001 业务表 / 0002 限流 / 0003 微信 token / 0004 管理员)
 tools/                   导出、行数校验、对拍、真实数据冒烟、素材小抄、缩略图 key 计划
-tests/                   node --test 用例(178 条), 用函数桩模拟 D1/R2, 不联网
+tests/                   node --test 用例(182 条), 用函数桩模拟 D1/R2, 不联网
 ```
 
 > 改代码时的边界：**对外口径改 `app/api/` + `app/core/`，后台改 `app/admin/`**；`app/admin/` 只通过 `/admin` 前缀对外，不进 33 条路由表。
@@ -75,7 +75,7 @@ npm run deploy
 ```bash
 npm run schema:local   # 本地 SQLite 建表(0001+0002+0003 中的前两个 + 0003 按需)
 npm run dev            # wrangler dev --local, 默认 http://127.0.0.1:8787
-npm test               # node --test, 178 条用例, 不需要网络与云账号
+npm test               # node --test, 182 条用例, 不需要网络与云账号
 ```
 
 手工验收（`wrangler dev` 起来后，把 33 条逐条打一遍；`/news/list` 要同时试带 `page` 与不带 `page`）：
@@ -145,7 +145,12 @@ node tools/diff_api.mjs --old https://api0.250036.xyz --new http://127.0.0.1:878
 16. **站点图标按真实格式下发**：`app/favicon.ico` 实际是 800×800 的 **PNG**（前 8 字节 PNG 魔数），所以响应与页面 `type=` 都声明 `image/png`；页面引用统一带 `?v=<内容指纹>`（`core/favicon.js` 的 `FAVICON_HASH`）—— 浏览器按**站点**记"有没有图标"，不带指纹就换不掉内联之前 404 留下的旧结论。
 17. **弹窗类静态脚本由外壳统一引**：`image_upload.js`（弹窗里「上传」走 XHR + 回填字段）与 `media_library.js`（素材库弹窗拉列表 + 回填字段）在 `app/admin/lib/layout.js` 的 `MODAL_SCRIPTS` 里统一引入。旧站是 `_image_upload_field.html` / `_media_library_modal.html` **各自**带 `<script src>`，而 `partials.js` 只渲染弹窗的 HTML（不带标签）——漏引时的表现是"点上传整页刷新、素材库弹窗空白"，且**服务端直出的 `/admin/media_manage` 照常正常**（因为它不依赖脚本），很容易误判成后端问题。两个脚本都自带幂等守卫（`window.__imageUploadBound` / `window.__mediaLibraryBound`）；`tests/admin_submit_action.test.mjs` 里有一条"资源包里不许有孤儿脚本"的检查防止再漏。
 18. **正文富文本编辑器 = 自托管 wangEditor v5.1.23**（与旧站同版本、同初始化逻辑，但资源不走 CDN）：源码在 `app/admin/static/vendor/wangeditor/`（与旧站 CDN 上那份逐字节相同），随 `tools/embed_admin_assets.mjs` 打进生成物，编辑页按 `style.css → index.js → js/news_editor.js` 顺序加载；资源缺失或初始化抛错时回退普通文本域并在页面上告警，编辑页不会打不开。内容格式不变（图片存相对路径、视频存 `<wx-video>`；编辑器的 `data-w-e-*` 与容器在入库前清掉）。另两处与旧站一致的坑已在 `news_editor.js` 里处理：① 回显时把顶层图片各包一层 `<p>`、保存时拆回（wangEditor 解析"顶层图片+视频"会丢图甚至报错）；② 插入改为"插完校验、失败重聚焦重试"（编辑器对失效选区是静默失败）。顺带把 `newsContent.js` 的站内素材前缀从"只有 news_uploads/avatar_uploads"改成引用 `core/storage.js` 的 `MEDIA_PREFIXES`，新目录（`image/`、`video/`）的素材进出库也能正确来回转换。
-19. **`route_super` 类写路径现在有两道闸**：`app/admin/index.js` 分发前按 `entities.js` 的清单拦一道（原先只靠页面自查，管理员页漏了自查 → 任何登录账号都能增删管理员/重置口令），页面内仍可再自查。
+19. **笔记的预览页与编辑页按旧站结构对齐**：两页共用 `admin.css` 的「小程序尺度统一层」（`.mp-frame` / `--mp-w=800px`），所以**预览所见 = 编辑所见**。
+    · 预览页（`/admin/news_preview`）按旧站模板重建：`.mp-preview.mp-frame` + `.mp-card`/`.mp-meta`/`.mp-chip`/`.mp-author`/`.mp-video`/`.news-content` + 两个居中返回按钮；正文管线是"净化 → `wx-video`→`<video>`（绝对地址）→ 图片绝对化 → **正文配图换 800px 缩略图**"（`core/media_scheme.js` 的 `previewBodyThumbs`/`previewThumbUrl`，探不到就回退原图；只给只读的预览页用，**不要**用在编辑页，否则会把缩略图路径回存进正文）；只读、不加前台浏览量。
+    · 编辑页（`/admin/news_edit`）改成旧站的单列布局（`col-lg-8 mp-frame` 居中，不再用两列的 `editShell`）：字段顺序 标题→分类→封面→视频地址→摘要→正文，正文下方是「发布设置」卡（立即显示/发布时间/活动时间/保存/返回）与「数据统计」卡（仅编辑已有笔记时显示）。
+    · 三个带状态筛选的列表（笔记/留言/公告）补上了 `data-status-filter-param="status"`，行内改状态后不再匹配当前筛选的行会**就地隐藏**（旧站行为，原先 CF 侧这段判断是死代码）。
+    · **有意不"补"的差异**见 `DEPLOY.md` 的「与旧站的差异（有意为之）」节（如 2.1.4 按需求裁掉的用户笔记审核、未迁的 SQL 工具等）。
+20. **`route_super` 类写路径现在有两道闸**：`app/admin/index.js` 分发前按 `entities.js` 的清单拦一道（原先只靠页面自查，管理员页漏了自查 → 任何登录账号都能增删管理员/重置口令），页面内仍可再自查。
 
 ## 六、部署（你自己执行）
 

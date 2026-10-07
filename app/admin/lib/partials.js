@@ -179,7 +179,7 @@ export function listShell(options = {}) {
         totalPages, unit: options.unit || '条', hintId: options.hintId
       })}</span>
     </div>
-    <div class="table-responsive">
+    <div class="table-responsive"${options.tableAttrs || ''}>
       <table aria-label="${escapeHtml(options.title || '列表')}列表" class="table table-hover align-middle text-center">
         <thead class="table-light"><tr>${columns}</tr></thead>
         <tbody id="${escapeHtml(options.tbodyId)}">${options.rows || ''}</tbody>

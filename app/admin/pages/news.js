@@ -2,15 +2,15 @@
 // 逐条对齐旧站 fastapi/app/admin/news_admin.py + news_edit.py + news_recycle.py
 import { escapeHtml } from '../../core/html.js';
 import { all, one, run } from '../../core/db.js';
-import { assetUrl, mediaBase } from '../../core/media_scheme.js';
+import { assetUrl, mediaBase, previewBodyThumbs, previewThumbUrl } from '../../core/media_scheme.js';
 import { sanitizeHtml } from '../../core/sanitize.js';
 import { MEDIA_PREFIXES } from '../../core/storage.js';
 import { beijingNow } from '../../core/timeutil.js';
 import { adminLayout } from '../lib/layout.js';
-import { optionsForSelect } from '../lib/categorySource.js';
+import { getNameMap, nameFor, optionsForSelect } from '../lib/categorySource.js';
 import { imagesForStorage, plainDesc, videoForBrowser, videoForEditor, videoForStorage } from '../lib/newsContent.js';
 import {
-  editShell, emptyRow, imageUploadField, imageUploadModal, listShell, mediaLibraryModal,
+  backButton, emptyRow, imageUploadField, imageUploadModal, listShell, mediaLibraryModal,
   pagerScript, selectField, switchField, textareaField, textField
 } from '../lib/partials.js';
 import { statusActions, statusBadgeClass, statusKind, statusLabel } from '../lib/status.js';
@@ -190,6 +190,8 @@ async function managePage(ctx) {
     title: '笔记', columns: COLUMNS, rows: renderRows(ctx, rows),
     actions: `<a class="btn btn-primary" href="/admin/news_edit?id=0"><i aria-hidden="true" class="bi bi-plus-lg"></i> 发布笔记</a>`
       + `<a class="btn btn-outline-secondary" href="${RECYCLE_URL}"><i class="bi bi-trash3" aria-hidden="true"></i> 回收站</a>${categoryForm}`,
+    // 本页按 status 筛选: 就地切换状态后, 不再匹配当前筛选的行由 status-toggle.js 就地隐藏(与旧站同款)
+    tableAttrs: ' data-status-filter-param="status"',
     tbodyId: 'newsTbody', sentinelId: 'newsLoadMore', textId: 'newsLoadMoreText',
     hintId: 'newsLoadedHint', total, perPage: PER_PAGE, currentPage: page, totalPages,
     unit: '条', backTopId: 'newsBackTopBtn', jumpBtnId: 'newsJumpBtn', jumpInputId: 'newsJumpInput'
@@ -234,35 +236,75 @@ function redirect(location) {
   return new Response(null, { status: 302, headers: { location } });
 }
 
-// 预览: 只读, 不给前台浏览量 +1; 正文转成浏览器形态(图片绝对化 + wx-video → video)
+// 预览: 只读, 不给前台浏览量 +1(与旧站一致)
+// 正文管线顺序照旧站 news_admin.news_preview: 净化 → 视频转 <video>(绝对地址) → 图片绝对化 → 正文配图换 800px 缩略图
+// 页面结构/类名与旧站 templates/news_preview.html 逐项对齐(.mp-preview/.mp-frame/.mp-card/.mp-meta/.mp-chip/
+// .mp-author/.mp-video/.news-content + .page-actions-center), 宽度与字号来自 admin.css 的「小程序尺度统一层」——
+// 与编辑区共用一份定义, 所以"预览所见 = 编辑所见"
 async function previewPage(ctx) {
   const newsId = intOr(ctx.query.id, 0);
   const fail = (message) => adminLayout({
     title: '笔记预览', currentPage: 'news_manage', admin: ctx.session.username,
     isSuper: ctx.session.isSuper, version: ctx.version, error: message,
-    content: `<div class="card"><div class="card-body">${escapeHtml(message)}</div></div>`
+    content: '<div class="card"><div class="card-body">请从「笔记管理」列表重新进入预览。</div></div>'
   });
   if (newsId <= 0) return fail('缺少笔记ID');
   const row = await one(ctx.env, 'SELECT * FROM news WHERE id = ?', newsId).catch(() => null);
   if (!row) return fail('新闻不存在');
 
   const base = mediaBase(ctx.env);
-  const body = videoForBrowser(sanitizeHtml(strOf(row.content)), base)
+  const absolute = videoForBrowser(sanitizeHtml(strOf(row.content)), base)
     .replace(/(<img[^>]+src=["'])([^"']+)(["'])/gi, (whole, head, src, tail) => head + assetUrl(ctx.env, src, '') + tail);
-  const content = `<div class="card"><div class="card-body">
-  <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-    <span class="badge text-bg-${statusBadgeClass(statusKind('news'), row.status)}">${escapeHtml(statusLabel(statusKind('news'), row.status))}</span>
-    <span class="badge text-bg-secondary">${escapeHtml(strOf(row.category) || '-')}</span>
-    <span class="small text-muted">发布时间 ${escapeHtml(strOf(row.publish_time).slice(0, 16))}</span>
+  const body = await previewBodyThumbs(ctx.env, absolute);
+  const nameMap = await getNameMap(ctx.env);
+  const kind = statusKind('news');
+  const cover = strOf(row.image) ? await previewThumbUrl(ctx.env, row.image) : '';
+  const mainVideo = strOf(row.video_url) ? await previewThumbUrl(ctx.env, row.video_url) : '';
+  const desc = strOf(row.desc);
+
+  const content = `<div class="row">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <span class="badge text-bg-${statusBadgeClass(kind, row.status)}">${escapeHtml(statusLabel(kind, row.status))}</span>
+          <span class="text-muted small">
+            <i class="bi bi-eye" aria-hidden="true"></i> ${intOr(row.view_count, 0)} ｜
+            <i class="bi bi-hand-thumbs-up" aria-hidden="true"></i> ${intOr(row.likes, 0)} ｜
+            <i class="bi bi-star" aria-hidden="true"></i> ${intOr(row.favorites, 0)}
+          </span>
+        </div>
+
+        <div class="mp-preview mp-frame">
+          <div class="mp-frame-hint">小程序笔记详情页预览（800px 宽，与编辑区一致）</div>
+          ${cover ? `<div class="mp-cover-label">封面图（列表页展示）</div>
+          <img class="mp-cover" src="${escapeHtml(cover)}" alt="" onerror="this.style.visibility='hidden'">` : ''}
+          <div class="mp-card">
+            <div class="mp-title">${escapeHtml(strOf(row.title))}</div>
+            ${desc ? `<div class="mp-cover-label">副标题（列表页展示）</div>
+            <p class="text-muted small border-start border-3 ps-2">${escapeHtml(desc)}</p>` : ''}
+            <div class="mp-meta">
+              <span class="mp-chip">${escapeHtml(nameFor(nameMap, row.category, strOf(row.category) || '-'))}</span>
+              <span>${escapeHtml(strOf(row.publish_time))}</span>
+              <span class="mp-author">管理员</span>
+            </div>
+            ${mainVideo ? `<div class="mp-video">
+              <video src="${escapeHtml(mainVideo)}" controls playsinline preload="metadata"
+                     onerror="this.style.visibility='hidden'"></video>
+            </div>` : ''}
+            <div class="news-content">${body}</div>
+          </div>
+        </div>
+
+        <hr>
+        <div class="page-actions-center">
+          ${backButton(`/admin/news_edit?id=${row.id}`, '返回编辑')}
+          ${backButton(MANAGE_URL, '返回列表')}
+        </div>
+      </div>
+    </div>
   </div>
-  <h4>${escapeHtml(strOf(row.title))}</h4>
-  ${row.image ? `<img src="${escapeHtml(assetUrl(ctx.env, row.image, ''))}" class="img-fluid mb-3" alt="" onerror="this.style.display='none'">` : ''}
-  <div class="news-preview-body">${body}</div>
-  <div class="mt-3">
-    <a class="btn btn-outline-primary btn-sm" href="/admin/news_edit?id=${row.id}">返回编辑</a>
-    <a class="btn btn-outline-secondary btn-sm" href="${MANAGE_URL}">返回列表</a>
-  </div>
-</div></div>`;
+</div>`;
   return adminLayout({
     title: '笔记预览', currentPage: 'news_manage', admin: ctx.session.username,
     isSuper: ctx.session.isSuper, version: ctx.version, content
@@ -358,18 +400,21 @@ function editView(ctx, { isNew, row, error, errorField, options }) {
   }
   // 回显: 视频转成编辑器认识的 <video>(根路径), 否则打开编辑页看不到视频、一保存就丢
   const contentValue = videoForEditor(strOf(row.content));
+  // 字段顺序与旧站 news_edit.html 一致: 标题 → 分类 → 封面 → 视频地址 → 摘要 → 正文 → 发布设置卡 → 数据统计卡
   const main = textField({ name: 'title', label: '标题', value: row.title, required: true, errorField })
-    + `<div class="row g-3">
-      <div class="col-md-6">${imageUploadField({
+    + selectField({
+      name: 'category', label: '分类', options: options.length ? options : [['', '（还没有可用分类）']],
+      value: row.category, required: true, errorField
+    })
+    + imageUploadField({
       env: ctx.env, name: 'image', label: '封面图 URL', value: row.image, required: true,
       mediaPicker: true, errorField, hint: '封面建议使用 16:9 横版图片（如 1280×720）。'
-    })}</div>
-      <div class="col-md-6">${imageUploadField({
+    })
+    + imageUploadField({
       env: ctx.env, name: 'video_url', label: '视频地址(可选)显示在正文之前', value: row.video_url,
       mediaKind: 'video', mediaPicker: true, errorField,
       hint: '填站内相对路径（如 video/video_x.mp4），或点右侧上传/从视频素材库选。'
-    })}</div>
-    </div>`
+    })
     + textareaField({
       name: 'desc', label: '摘要 / 描述 (留空则自动截取正文)', value: row.desc, rows: 3, errorField
     })
@@ -401,23 +446,35 @@ function editView(ctx, { isNew, row, error, errorField, options }) {
         更大的视频可先传到素材目录再用「视频素材库」选。<br>
         编辑器资源若未能加载，页面会退回普通文本域并给出提示（不阻塞编辑保存）。
       </div>
-    </div>`;
-  const side = selectField({
-    name: 'category', label: '分类', options: options.length ? options : [['', '（还没有可用分类）']],
-    value: row.category, required: true, errorField
-  }) + textField({
-    name: 'publish_time', label: '发布时间', value: datetimeLocalValue(row.publish_time), errorField,
-    placeholder: 'YYYY-MM-DD HH:MM'
-  }) + textField({
-    name: 'activity_time', label: '活动时间(可选)', value: row.activity_time, errorField
-  }) + switchField({
-    name: 'status', label: '立即显示 (不勾选则为待审核)', checked: strOf(row.status) === 'approved'
-  });
-  const content = editShell({
-    action: `/admin/news_edit${isNew ? '' : `?id=${row.id}`}`,
-    main, side, backUrl: MANAGE_URL, backLabel: '返回列表',
-    primaryLabel: isNew ? '发布笔记' : '保存修改'
-  }) + imageUploadModal({ name: 'image', purpose: 'cover' })
+    </div>`
+    // 发布设置: 与旧站一样收在正文下面的一张卡里(不是右侧栏), 保存与返回也在卡内
+    + `<div class="card mb-3"><div class="card-body">
+      <div class="form-label">发布设置</div>
+      ${switchField({ name: 'status', label: '立即显示 (不勾选则为待审核)', checked: strOf(row.status) === 'approved' })}
+      ${textField({
+      name: 'publish_time', label: '发布时间', value: datetimeLocalValue(row.publish_time), errorField,
+      placeholder: 'YYYY-MM-DD HH:MM'
+    })}
+      ${textField({ name: 'activity_time', label: '活动时间(可选)', value: row.activity_time, errorField })}
+      <div class="d-grid gap-2">
+        <button class="btn btn-primary" type="submit"><i class="bi bi-check-lg" aria-hidden="true"></i> ${isNew ? '发布笔记' : '保存修改'}</button>
+        ${backButton(MANAGE_URL, '返回列表')}
+      </div>
+    </div></div>`
+    // 数据统计卡: 只在编辑已有笔记时出现(与旧站一致)
+    + (isNew ? '' : `<div class="card"><div class="card-body small text-muted">
+      数据统计：浏览 ${intOr(row.view_count, 0)} ｜ 点赞 ${intOr(row.likes, 0)} ｜ 收藏 ${intOr(row.favorites, 0)}
+    </div></div>`);
+  // 单列居中 + .mp-frame: 与旧站 news_edit 同布局, 也与预览页共用同一套"小程序尺度"
+  const content = `<div class="card">
+  <div class="card-body">
+    <form method="post" action="/admin/news_edit${isNew ? '' : `?id=${row.id}`}">
+      <div class="row g-3 justify-content-center">
+        <div class="col-lg-8 mp-frame">${main}</div>
+      </div>
+    </form>
+  </div>
+</div>` + imageUploadModal({ name: 'image', purpose: 'cover' })
     + imageUploadModal({ name: 'video_url', purpose: 'video', kind: 'video' })
     // 正文「本地上传」: 图片与视频都收(kind=mixed), 传完由组件回调 MediaInsertFromUpload 插到光标处
     + imageUploadModal({ name: 'editor', purpose: 'content', kind: 'mixed', insert: 'editor', title: '上传图片或视频到正文' })

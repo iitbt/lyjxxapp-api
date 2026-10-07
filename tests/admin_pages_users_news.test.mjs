@@ -125,6 +125,89 @@ test('笔记列表: 复选框列 + 批量区 + 回收站入口', async () => {
   assert.ok(html.includes('设为显示'));
 });
 
+test('笔记预览: 结构/类名与旧站 news_preview 一致, 分类显示中文, 不 +1 浏览量', async () => {
+  const { env, state } = makeAdminEnv({
+    rows: {
+      news: [Object.assign({}, NEWS_ROW, {
+        video_url: 'video/v1.mp4', content: '<p>正文</p><img src="image/a.png" alt="">'
+      })],
+      app_categories: [{ category_key: 'outdoor', name: '户外' }]
+    }
+  });
+  const cookie = await loginCookie(env);
+  const html = await (await get('/admin/news_preview?id=5', env, cookie)).text();
+
+  // 与旧站 templates/news_preview.html 同结构: 800px 手机框 + 卡片 + 元信息 + 两个居中返回按钮
+  for (const cls of ['mp-preview mp-frame', 'mp-frame-hint', 'mp-cover', 'mp-card', 'mp-title',
+    'mp-meta', 'mp-chip', 'mp-author', 'mp-video', 'news-content', 'page-actions-center']) {
+    assert.ok(html.includes(cls), `预览页缺少 .${cls.split(' ')[0]}`);
+  }
+  assert.ok(html.includes('小程序笔记详情页预览（800px 宽，与编辑区一致）'));
+  assert.ok(html.includes('封面图（列表页展示）'), '封面要有标注');
+  assert.ok(html.includes('副标题（列表页展示）'), '摘要要有标注');
+  assert.ok(html.includes('<span class="mp-chip">户外</span>'), '分类要显示中文(不是 outdoor)');
+  assert.ok(html.includes('<span class="mp-author">管理员</span>'));
+  // 主视频 + 正文里的视频都转成浏览器可播的 <video>(绝对地址)
+  assert.ok(html.includes('/video/v1.mp4'), '主视频地址要绝对化');
+  assert.ok(html.includes('<i class="bi bi-eye" aria-hidden="true"></i> 3'), '统计: 浏览');
+  assert.ok(html.includes('返回编辑') && html.includes('返回列表'));
+  // 预览是只读的: 不许给前台浏览量 +1(旧站口径)
+  assert.ok(!state.calls.some((call) => /UPDATE news SET view_count/i.test(call.sql)), '预览不该改浏览量');
+});
+
+test('笔记预览: 正文与封面优先用 800px 缩略图, 没有则回退原图', async () => {
+  const withThumb = makeAdminEnv({
+    rows: { news: [Object.assign({}, NEWS_ROW, { content: '<p>正文</p><img src="image/a.png" alt="">' })] },
+    mediaHead: (key) => (/(\/_thumb\/800\/)/.test(key) ? { key } : null)
+  });
+  const cookie = await loginCookie(withThumb.env);
+  const html = await (await get(withThumb.env === undefined ? '' : '/admin/news_preview?id=5',
+    withThumb.env, cookie)).text();
+  assert.ok(html.includes('image/_thumb/800/a.webp'), '正文配图要换成 800px 缩略图');
+  assert.ok(html.includes('news_uploads/_thumb/800/a.webp'), '封面也要换 800px 缩略图');
+
+  // 没有缩略图(默认桩 head 为 null) → 逐字回退原图
+  const noThumb = makeAdminEnv({
+    rows: { news: [Object.assign({}, NEWS_ROW, { content: '<p>正文</p><img src="image/a.png" alt="">' })] }
+  });
+  const cookie2 = await loginCookie(noThumb.env);
+  const plain = await (await get('/admin/news_preview?id=5', noThumb.env, cookie2)).text();
+  assert.ok(!plain.includes('_thumb/800/'), '没有缩略图就不该出现缩略图地址');
+  assert.ok(plain.includes('news_uploads/a.png'), '回退到原图地址');
+});
+
+test('笔记编辑: 与旧站同布局(单列 mp-frame + 发布设置卡 + 数据统计卡)', async () => {
+  const { env } = makeAdminEnv({
+    rows: { news: [NEWS_ROW], app_categories: [{ category_key: 'outdoor', name: '户外' }] }
+  });
+  const cookie = await loginCookie(env);
+  const html = await (await get('/admin/news_edit?id=5', env, cookie)).text();
+  assert.ok(html.includes('<div class="row g-3 justify-content-center">'), '单列居中(旧站 news_edit 布局)');
+  assert.ok(html.includes('col-lg-8 mp-frame'), '主列取 800px 小程序尺度');
+  assert.ok(html.includes('<div class="form-label">发布设置</div>'), '发布设置收在一张卡里');
+  assert.ok(html.includes('数据统计：浏览 3 ｜ 点赞 2 ｜ 收藏 1'), '编辑已有笔记要显示统计卡');
+  assert.ok(html.includes('name="status"') && html.includes('name="publish_time"') && html.includes('name="activity_time"'));
+  // 新建页没有统计卡(与旧站一致)
+  const fresh = await (await get('/admin/news_edit?id=0', env, cookie)).text();
+  assert.ok(!fresh.includes('数据统计：浏览'), '新建页不该有统计卡');
+  // 字段顺序: 标题 → 分类 → 封面 → 视频地址 → 摘要 → 正文
+  const order = ['name="title"', 'name="category"', 'name="image"', 'name="video_url"', 'name="desc"', 'id="contentRaw"']
+    .map((needle) => html.indexOf(needle));
+  assert.ok(order.every((at) => at > 0), '六个字段都要在页面上');
+  assert.deepEqual(order, order.slice().sort((a, b) => a - b), '字段顺序要与旧站一致');
+});
+
+test('列表页: 三个带状态筛选的页面都声明了就地隐藏用的属性', async () => {
+  const { env } = makeAdminEnv({
+    rows: { news: [NEWS_ROW], news_comments: [], app_notices: [] }, counts: { news: 1, news_comments: 0, app_notices: 0 }
+  });
+  const cookie = await loginCookie(env);
+  for (const path of ['/admin/news_manage', '/admin/comments_manage', '/admin/notice_manage']) {
+    const html = await (await get(path, env, cookie)).text();
+    assert.ok(html.includes('data-status-filter-param="status"'), `${path} 要声明状态筛选参数`);
+  }
+});
+
 test('笔记编辑: 必填项合并成一句, 正文视频转成 wx-video 且摘要自动截取', async () => {
   // 分类下拉来自 app_categories: 不给数据会被"分类无效"拦下(校验是对的)
   const { env, state } = makeAdminEnv({

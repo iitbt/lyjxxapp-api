@@ -134,6 +134,7 @@ async function managePage(ctx) {
   </form>`;
   const content = listShell({
     title: '通知公告', columns: COLUMNS, rows: renderRows(ctx, rows),
+  tableAttrs: ' data-status-filter-param="status"',
     actions: `<a class="btn btn-primary" href="/admin/notice_edit?id=0"><i aria-hidden="true" class="bi bi-plus-lg"></i> 添加公告</a>${searchForm}`,
     tbodyId: 'noticeTbody', sentinelId: 'noticeLoadMore', textId: 'noticeLoadMoreText',
     hintId: 'noticeLoadedHint', total, perPage: PER_PAGE, currentPage: page, totalPages,

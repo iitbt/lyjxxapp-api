@@ -115,6 +115,7 @@ async function managePage(ctx) {
   }
   const content = filterHint(filters) + listShell({
     title: '留言管理', columns: COLUMNS, rows: renderRows(ctx, rows), actions: statusPills(filters),
+    tableAttrs: ' data-status-filter-param="status"',
     tbodyId: 'commentTbody', sentinelId: 'commentLoadMore', textId: 'commentLoadMoreText',
     hintId: 'commentLoadedHint', total, perPage: PER_PAGE, currentPage: page, totalPages,
     unit: '条', backTopId: 'commentBackTopBtn', jumpBtnId: 'commentJumpBtn', jumpInputId: 'commentJumpInput'

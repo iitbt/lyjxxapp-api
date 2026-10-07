@@ -2,7 +2,7 @@
 
 > 项目：`app/api-cf/`（Workers + D1 + R2，**只有对外 API，没有管理后台**）。
 > 迁移设计见 `Plan.md`，接口台账见 `notes/api-inventory.md`，限流方案见 `notes/limits-design.md`，运营改数见 `notes/ops-sql.md`，本地跑法见 `README.md`。
-> 代码与自测已完成（33 条接口、178 条用例全绿），本文件只讲"怎么推上云"。部署动作全部由你执行。
+> 代码与自测已完成（33 条接口、182 条用例全绿），本文件只讲"怎么推上云"。部署动作全部由你执行。
 
 ## 0. 命名约定（固定，不要改）
 
@@ -228,6 +228,8 @@ DELETE FROM admin_users;   -- 清掉全部管理员(通常只有 1 个)
 | 概览 | 控制面板 | 13 张统计卡 + 近 7 日用户/笔记趋势（纯 SVG，不引图表库）+ 最新用户/笔记/留言 |
 | 用户与审核 | 用户管理（详情、设为/取消内部测试、恢复注销账号、删除）、管理员管理 | 敏感操作仅超管可见，服务端也拦 |
 | 内容管理 | 笔记管理（发布/编辑/预览/回收站/批量）、分类、通知公告、留言 | 删除走服务端确认页，先摊开影响面 |
+| 笔记预览 | `/admin/news_preview?id=<id>` | 任何登录管理员 | 800px「小程序尺度」预览框（`.mp-preview.mp-frame`）：封面 → 卡片（标题/副标题/分类·时间·管理员/主视频/正文）→ 两个居中返回按钮；**只读、不加前台浏览量**；正文配图在生成过 `_thumb/800/` 时用缩略图，否则回退原图 |
+| 笔记编辑 | `/admin/news_edit?id=<id>` | 任何登录管理员 | 富文本编辑器 + 三种插图入口；字段顺序与旧站一致（标题→分类→封面→视频地址→摘要→正文→**发布设置卡**→**数据统计卡**），单列 800px 居中（与预览页同一套尺度） |
 | 小程序配置 | 首页板块、首页精选、专题精选（摩旅/户外）、轮播图、版本更新、运营文案、我的页菜单 | 改完按端上缓存策略刷新 |
 | 系统 | 管理员设置（改昵称/邮箱/口令）、系统信息 | 改口令后强制重新登录 |
 | **不迁移** | 数据库工具、素材库治理页（查占用/查引用/删素材） | 菜单里标「未迁移」并说明原因，用 D1 控制台代替 |
@@ -310,7 +312,7 @@ npm run secrets:put
 
 ### B7. 本地自检（部署前）
 ```powershell
-npm test          # 178 条用例, 应全绿(不需要账号与网络)
+npm test          # 182 条用例, 应全绿(不需要账号与网络)
 npm run dev       # 本地起服务 http://127.0.0.1:8787, 先看 / 与 /health/ready
 ```
 
@@ -415,7 +417,9 @@ jobs:
   `tools/thumb_plan.mjs` 就是按上表规则算出 `原图 → 缩略图 key`（`--widths 480` 可只算一个宽度）。生成出 webp 后按列出的 key 上传，例如
   `wrangler r2 object put lyjxxapp-r2/image/_thumb/480/<名>.webp --file=<本地 webp>`。
 - **缺失时的回退**：探不到缩略图就**不下发** `image_thumb` 键（`app/core/media_scheme.js::existingThumbs`）→ 小程序与后台列表回退原图，只是流量大一些，不白图、不报错。
-- **宽度**：Cloudflare 侧只读 `480`（`NEWS_COVER_THUMB_WIDTH`，封面/列表用）；`800` 只有旧站预览页用（`fastapi/app/admin/render.py`），`thumb_plan.mjs` 默认把两个都列出来。
+- **宽度**：`480` 用于小程序封面/后台列表；**`800` 用于后台预览页**（`app/admin/pages/news.js` 的 `previewPage` 走 `core/media_scheme.js` 的 `previewThumbUrl` / `previewBodyThumbs`）——封面与正文配图命中 `_thumb/800/` 就用缩略图，探不到逐字回退原图。`thumb_plan.mjs` 默认把两个宽度都列出来。
+  > 与旧站的差异：旧站正文配图逐个探测、**没有数量上限**；CF 侧按 Workers 的子请求预算封顶 **30 张**（`PREVIEW_BODY_THUMB_MAX`），超出的图保持原图。另外旧实现只认 `news_uploads/` 下的图，CF 侧覆盖 `image/`、`video/`、`news_uploads/` 全部素材目录。
+  > **只在只读的预览页这么做**：编辑页不能替换（编辑器会把当前 DOM 回存，存进去就变成缩略图路径了）。
 - ⚠️ **与旧站的差异（本次不改 `fastapi/` 任何代码）**：旧站 `app/core/storage.py::ensure_news_cover_thumb` 与 `tools/make_cover_thumbs.py` 仍把缩略图写死到 `news_uploads/_thumb/<宽>/`。所以**用旧站工具跑新目录（`image/`）的素材，产出会落到 `news_uploads/_thumb/` 下、与新规则不匹配**（表现是"依旧回退原图"，不影响功能）。要让旧站工具也按"目录随原图走"产出，需改旧站那份规则并重跑 —— **待确认**（改不改、何时改；本次范围内不动它）。
 - **上传接口的字段与口径**：`file`（或历史名 `image`）+ `purpose`（`cover` / `content` / `video`），图片 8MB、视频 64MB，并按**文件头**判类型（改扩展名蒙不过去）。
 
@@ -518,6 +522,9 @@ curl.exe -s https://lyjx.250036.xyz/admin/login | Select-String 'rel="icon"'
 | 后台笔记编辑页的正文 | 是**富文本编辑器**（工具栏 + 可编辑区），存量内容里的图片与视频都在；三种插图入口（本地上传 / 图片素材库 / 视频素材库）都能插到光标处；保存后 `news.content` 仍是"相对路径 + `<wx-video>`" |
 | `node tools/thumb_plan.mjs --check <已有清单> <原图清单>` | 逐条标 `有`/`缺`；有缺失时退出码 **1**（原图 → 期望缩略图 key 的映射见「素材目录」节的缩略图表） |
 | 笔记列表（带 `page`）里某条有缩略图 | 该条带 `image_thumb` 且指向 `<素材目录>_thumb/480/<名>.webp`；没有就**没有这个键**（不是空串） |
+| `GET /admin/news_preview?id=<id>` | HTML 里有 `.mp-preview.mp-frame`（宽 800）、`.mp-cover`、`.mp-card`、`.mp-meta`（`.mp-chip` 显示**中文分类**）、`.mp-video`、`.news-content`、`.page-actions-center`（两个返回按钮居中）；正文配图 src 为 `_thumb/800/…` 或原图；**刷新前后 `view_count` 不变** |
+| `GET /admin/news_edit?id=<id>` | 单列 `col-lg-8 mp-frame`（宽 800）；六个字段顺序为 标题/分类/封面图/视频地址/摘要/正文；正文下方依次是「发布设置」卡与「数据统计：浏览 n ｜ 点赞 n ｜ 收藏 n」；工具栏与编辑区正常（编辑器资源见「富文本编辑器」节） |
+| 三个带状态筛选的列表（笔记/留言/公告） | 表格外层带 `data-status-filter-param="status"`：行内通过/停用后，**不再匹配当前筛选的行会就地隐藏**（不整页刷新、不丢滚动位置） |
 | `GET /?format=json` | `{"name":"狼牙极限运动笔记API","description":"本服务为…数据服务。","status":"运行中","server_time"}`（name/description/status 三值与旧站逐字一致） |
 | `GET /health` | **裸结构**（无 code 包装）`{"status":"ok","service":"狼牙极限运动笔记API","uptime_s":0,"server_time",checks:{database,media}}` |
 | `GET /health/ready` | **裸结构**（无 code 包装）`{"status":"ready",version,server_time,checks}`；D1 或 R2 不通时 **503** 且 `status:"starting"` |
@@ -544,6 +551,21 @@ curl.exe -s https://lyjx.250036.xyz/admin/login | Select-String 'rel="icon"'
 3. 灰度：内部测试账号先用线路切换走新站（不用发版）。
 4. **回滚**：把小程序线路切回 `api0.250036.xyz` 即可 —— 旧后端与旧库全程没动过；服务端也可 `wrangler rollback`。
 5. 旧后端与旧库**先别删**，保留 1~2 周做兜底。
+
+---
+
+## 与旧站的差异（有意为之 —— 别再"补"回来）
+
+逐页对照旧站时，下面这些是**刻意保持的差异**，不是漏迁。动手"补齐"前先看这一节（每条都有测试或注释守卫）：
+
+| 项 | 现状 | 为什么 |
+|---|---|---|
+| `/admin/user_news_manage`（用户笔记审核） | **已裁掉**：菜单、页面路由、权限清单、状态注册表里都没有它，老地址落统一 404 页 | 2026-10-06 按需求裁剪，`tests/admin_sidebar_menus.test.mjs` 有守卫测试会拦"又加回来" |
+| `/admin/sql_tool`、`/admin/fix_db` | 未迁移（权限清单里占位保留，将来要迁时口径已就位） | 旧站生产环境默认关闭 SQL 工具；本地 D1 直接用 D1 控制台 |
+| `/admin/db_diagnostics` | 并入 `/admin/db_tools?tab=diagnostics` | 同一件事一个入口，少一页跳转 |
+| `/admin/gitee_proxy`、旧兼容 302（`/admin/admin_upload`、`/test_upload`、`/test_avatar_upload`、`/test_image_loading`、`/test_image_path`）、旧入口 `/admin/index`、`/admin/admin_home` | 未迁移 | 低价值历史兼容；后台入口统一为 `/admin/login`、`/admin/bootstrap`、`/admin/dashboard` |
+| 列表页筛选形态（pills / select / btn-check 混用） | 与旧站逐页一致，不做"统一美颜" | 换形态会让用惯旧后台的人找不到筛选器 |
+| 公告没有预览页、轮播/分类等没有预览页 | 与旧站一致（预览页只有笔记与专题） | 这些页面没有"前端呈现"可看 |
 
 ---
 
