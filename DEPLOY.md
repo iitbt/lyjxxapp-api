@@ -29,6 +29,7 @@
 > ⚠️ 密钥不能进仓库：真值文件 `.secrets.json`、`.dev.vars` 已在 `.gitignore` 里，只提交 `.example` 模板。
 > ⚠️ **区域都选亚太**：D1 建库时的 **Location**、R2 建桶时的 **Location** 都选 **Asia Pacific**（就近中国大陆，延迟最低）。
 > D1 的 Location **建库后不能改**（要换只能新建库再导一遍数据），所以第一次建库就选对；R2 桶同理。
+> ⚠️ **千万不能靠"自动创建"**：`wrangler.toml` 里 `database_id` 留空时，wrangler 首次部署会按名字把库/桶**自动建出来**，而自动创建**不带 location hint → 落到默认区域（西欧）**，之后无法修改。本项目踩过一次（线上 D1/R2 都在西欧），根治办法与迁移步骤见 **「区域（Location）与资源重建」**。
 > ⚠️ **`.secrets.json` 与 `.dev.vars` 都要填，但用途不同**：前者推给 Cloudflare（生产），后者只作用于本机 `npm run dev`。
 
 ---
@@ -46,10 +47,11 @@
 2. 名字填 **`lyjxxapp-d1`**，**Location 选 `Asia Pacific`（亚太）** → 创建。
    > 这个 Location 是**建库时定死的**：选错只能新建库 + 重新导数据（见 A4），别等导完才发现。
 3. 复制那串 **Database ID**（UUID），回 GitHub 编辑 `wrangler.toml`：把 `database_id` 那行注释取消并填上真值 → Commit。
-   > 也可以跳过本步：`wrangler.toml` 里 `database_id` **留空**时，首次部署会让 wrangler 按 `database_name` 自动把库建出来（只在控制台可见）。建完仍建议回填，否则本地 `wrangler d1 execute` 定位不到这个库。
+   > **必须在本步手动建库并回填 ID**（这是"选对区域"的唯一时机）。曾经的写法是"`database_id` 留空，让首次部署自动建库"——那样建出来的库**没有 location hint，默认落在西欧**，且建后不可改，只能按「区域（Location）与资源重建」重来一遍。自动建的库还有第二个坑：本地 `wrangler d1 execute`/`d1 export` 定位不到它。
 
 ### A3. 建 R2 bucket 并开公开域
 1. **Storage & Databases → R2 → Create bucket**，名字填 **`lyjxxapp-r2`**，**Location 选 `Asia Pacific`（亚太）**（桶保持**私有**，公开读用自定义域单独开）。
+   > 同样**必须手动建**：部署时若桶不存在，wrangler 会按 `bucket_name` 自动建一个**不带 location hint** 的桶（默认区域，建后不可改）—— 见「区域（Location）与资源重建」。
 2. 进 bucket → **Settings → Public access → Custom Domain** → 填 **`storage.250036.xyz`** → 按提示加 DNS 记录。
 3. 完成后 `https://storage.250036.xyz/<key>` 能直接打开对象（先把素材传上去才验证得了，见"素材上传"）。
 4. 绑定名固定是 **`STORAGE`**（`wrangler.toml` 的 `[[r2_buckets]].binding`）：代码侧统一读 `core/config.js` 的 `storage`，改绑定时只改这一个字段即可（`MEDIA` 是早期名字，代码仍兼容，避免改绑定期出现空窗）。
@@ -521,6 +523,8 @@ curl.exe -s https://lyjx.250036.xyz/admin/login | Select-String 'rel="icon"'
 | `GET /admin/static/vendor/wangeditor/index.js`、`/admin/static/vendor/wangeditor/style.css`、`/admin/static/js/news_editor.js` | **200**（免登录）；MIME 分别为 `application/javascript` / `text/css`；带 `max-age=86400` |
 | 后台笔记编辑页的正文 | 是**富文本编辑器**（工具栏 + 可编辑区），存量内容里的图片与视频都在；三种插图入口（本地上传 / 图片素材库 / 视频素材库）都能插到光标处；保存后 `news.content` 仍是"相对路径 + `<wx-video>`" |
 | `node tools/thumb_plan.mjs --check <已有清单> <原图清单>` | 逐条标 `有`/`缺`；有缺失时退出码 **1**（原图 → 期望缩略图 key 的映射见「素材目录」节的缩略图表） |
+| `node tools/cf_region.mjs report`（或控制台看 Location 列） | D1 与 R2 的 location 都是 **`apac`**；显示西欧/其它区域就是踩了"自动创建"的坑，按「区域（Location）与资源重建」处理（**不可原地改**） |
+| 区域迁移完成 | 后台能登录（`admin_users` 行数一致）、素材能打开（R2 对象数与旧桶一致）、`/health/ready` 的 `checks.database` 与 `checks.storage` 都 ready、`storage.250036.xyz` 已挂到新桶 |
 | 笔记列表（带 `page`）里某条有缩略图 | 该条带 `image_thumb` 且指向 `<素材目录>_thumb/480/<名>.webp`；没有就**没有这个键**（不是空串） |
 | `GET /admin/news_preview?id=<id>` | HTML 里有 `.mp-preview.mp-frame`（宽 800）、`.mp-cover`、`.mp-card`、`.mp-meta`（`.mp-chip` 显示**中文分类**）、`.mp-video`、`.news-content`、`.page-actions-center`（两个返回按钮居中）；正文配图 src 为 `_thumb/800/…` 或原图；**刷新前后 `view_count` 不变** |
 | `GET /admin/news_edit?id=<id>` | 单列 `col-lg-8 mp-frame`（宽 800）；六个字段顺序为 标题/分类/封面图/视频地址/摘要/正文；正文下方依次是「发布设置」卡与「数据统计：浏览 n ｜ 点赞 n ｜ 收藏 n」；工具栏与编辑区正常（编辑器资源见「富文本编辑器」节） |
@@ -551,6 +555,81 @@ curl.exe -s https://lyjx.250036.xyz/admin/login | Select-String 'rel="icon"'
 3. 灰度：内部测试账号先用线路切换走新站（不用发版）。
 4. **回滚**：把小程序线路切回 `api0.250036.xyz` 即可 —— 旧后端与旧库全程没动过；服务端也可 `wrangler rollback`。
 5. 旧后端与旧库**先别删**，保留 1~2 周做兜底。
+
+---
+
+## 区域（Location）与资源重建
+
+**结论先写**：D1 的 **primary location** 与 R2 的 **location hint** 都是**建资源时定死的、建完不可修改**（控制台没有"改区域"的入口，API 也没有对应字段）。所以"区域选错了"**不能原地修**，只能"**新建一份正确的 + 迁数据 + 改绑定**"。
+
+**为什么当初会落到西欧**：`wrangler.toml` 里 `database_id` 留空、R2 桶不存在时，首次部署会被 wrangler **自动创建**；自动创建**不带 location hint**，Cloudflare 按账号默认给到一个区域（本项目拿到的是西欧）。这不是代码问题，也不影响功能正确性，只影响 **D1 读写与 R2 首次回源的往返延迟**（中国大陆用户最直观的体感是后台操作与小程序接口变慢）。
+
+**第 0 步（必做，否则一步都走不动）**：把 `wrangler.toml` 的 `database_id` 回填成真实值。现在它是注释状态，wrangler 会**拒绝加载整个配置**（`d1_databases[0] bindings must have a database_id field`），连迁移要用的 `d1 export` 都跑不了。
+
+```powershell
+# 取 ID: 控制台 D1 → lyjxxapp-d1 → Database ID; 或先配令牌再跑
+$env:CLOUDFLARE_API_TOKEN="<D1:Edit + R2:Edit 的 API 令牌>"
+node tools/cf_region.mjs report     # 会同时提示"缺 database_id"并列出所有库/桶与它们的 location
+```
+
+**再确认现状**（任选一种，本仓库无法代查：本机 wrangler 的登录态令牌在非交互环境用不了，需要你自己跑）：
+
+```powershell
+cd app\api-cf
+# ① 一条命令看两个资源的 location（需要 CLOUDFLARE_API_TOKEN: D1:Edit + R2:Edit）
+node tools/cf_region.mjs report
+# ② 或用 wrangler 交互式
+wrangler d1 list          # 看库列表里的 location 列
+wrangler r2 bucket list   # 看桶列表里的 location 列
+```
+
+期望值：**`apac`（Asia Pacific）**。控制台对照：D1 详情页的 Location、R2 桶列表的 Location 列。
+
+### 方案 A：新建 + 迁移（推荐，零删除、可回滚）
+
+前提：**D1 名额**。账号 D1 配额是 10 个（本项目开建时已用 9/10）。若现在已满，方案 A 建不出新库 —— 要么先删一个确定不用的库腾名额（**待确认**：哪个能删只有你知道），要么走方案 B。
+
+```powershell
+cd app\api-cf
+# 1) 在亚太建新资源（只新增，不动旧的）
+node tools/cf_region.mjs create --d1 lyjxxapp-d1-apac --r2 lyjxxapp-r2-apac   # 或控制台建，Location 选 Asia Pacific
+#    输出会直接给你要回填的两行（database_name/database_id、bucket_name）
+
+# 2) 迁 D1（导出含建表与数据；行数对不上就别往下走）
+wrangler d1 export lyjxxapp-d1 --remote --output=out\region\backup.sql
+wrangler d1 execute lyjxxapp-d1-apac --remote --file=out\region\backup.sql
+
+# 3) 迁 R2 素材（二选一；对象数/总字节数对得上才算成功）
+#    a. 控制台 → R2 → Super Slurper：源桶 lyjxxapp-r2 → 目标桶 lyjxxapp-r2-apac（跨桶复制，最省事）
+#    b. 有 R2 的 S3 凭据时用 rclone：
+#       rclone copy r2:lyjxxapp-r2 r2new:lyjxxapp-r2-apac --transfers 8 --checkers 16
+
+# 4) 改绑定并部署（只改这两处）
+#    [[d1_databases]] database_name = "lyjxxapp-d1-apac" / database_id = "<新 uuid>"
+#    [[r2_buckets]]  bucket_name  = "lyjxxapp-r2-apac"
+npx wrangler deploy
+
+# 5) R2 自定义域：先把 storage.250036.xyz 从旧桶摘掉，再挂到新桶（一个域同时只能挂一个桶）；MEDIA_BASE 不用改
+```
+
+迁完按「验证清单」走一遍，重点看：后台能登录（D1 行数一致）、素材能打开（对象数一致）、`/health/ready` 的 D1+R2 都 ready。
+
+### 方案 B：保留同名（不推荐）
+
+只有在"必须同名"或 D1 名额已满时才考虑。代价是**先删后建**，期间站点不可用，且**删除不可恢复**：
+
+- D1：同账号内库名唯一 → `wrangler d1 export lyjxxapp-d1 --remote --output=out\region\backup.sql` → 控制台**删除** `lyjxxapp-d1` → `wrangler d1 create lyjxxapp-d1 --location apac` → 回填新 `database_id` → `wrangler d1 execute lyjxxapp-d1 --remote --file=out\region\backup.sql`。
+- R2：**桶名全局唯一**（所有 Cloudflare 账号共用命名空间）→ 必须先把对象全部备份到别处（本地磁盘或临时桶；本项目素材是 GB 级，别用 `wrangler r2 object get` 逐条拉），再删桶、建同名桶、传回。
+- 备份文件（`out/region/backup.sql`）在导入成功并验证前**不要删**。
+
+### 可选缓解（不换 primary）：D1 读复制
+
+D1 支持开启读复制（Read replication），把**读**请求就近到亚太的副本（**写**仍然回西欧 primary）。开关在控制台 D1 详情页；也可用 API `PUT /accounts/{account_id}/d1/database/{database_id}/read_replication`。**待确认**：控制台当前的具体文案位置，以及本项目是否已开启（本仓库看不到账号状态）。这只是缓解，不等于"资源挪到亚太"。
+
+### 回滚与"要不要改代码"
+
+- **回滚**：`wrangler.toml` 那两个名字改回旧值 → `npx wrangler deploy`，再把自定义域挂回旧桶。旧资源只要没删，数据一直都在。
+- **不需要改代码**：区域是资源属性，`app/**` 里没有任何区域假设；绑定只来自 `wrangler.toml`；`MEDIA_BASE`、`SERVED_PREFIXES`、素材目录与缩略图规则都**不受影响**。
 
 ---
 
@@ -589,6 +668,7 @@ curl.exe -s https://lyjx.250036.xyz/admin/login | Select-String 'rel="icon"'
 | 点「上传」没反应（页面刷新或什么都不发生） | 上传表单靠 `static/js/image_upload.js` 认领并改走 XHR；该脚本是**生成物里的一份**，只改源文件不重跑 `tools/embed_admin_assets.mjs` 就不会生效 | 重跑 `node tools/embed_admin_assets.mjs` 并升 `main.js` 的 `API_VERSION` 后重新部署 |
 | 素材库弹窗里看不到刚上传的图 | 列举只认 `image/`、`video/` 与历史 `news_uploads/`；若 R2 里对象被放到别的目录（例如手工 `r2 object put` 时写错前缀）就不会出现 | 按 `库内相对路径 = R2 key` 重传；目录清单见「素材目录」节 |
 | 素材库/编辑页里的缩略图不显示 | 缩略图离线生成（Cloudflare 侧不生成），且 key 必须落在"目录随原图走"的位置：`image/` 的原图要放 `image/_thumb/480/…`，放成 `news_uploads/_thumb/…` 不会被命中 | 用 `node tools/thumb_plan.mjs --check …` 列出缺的 key 并按它上传（见「素材目录」节的缩略图段）；没有缩略图只是回退原图，不影响功能 |
+| D1/R2 的区域显示是西欧（中国大陆访问后台与小程序接口偏慢） | 资源是**部署时自动创建**的：`database_id` 留空 / 桶不存在时 wrangler 会补建，而补建**不带 location hint** → 落到默认区域；D1 primary location 与 R2 location hint **建后不可修改** | 按「区域（Location）与资源重建」新建亚太资源并迁数据，然后改 `wrangler.toml` 两个名字重新部署；本次已把配置注释与 A2/A3 步骤里的"留空自动建"改成"必须手动建 + 回填 ID" |
 | 编辑页（`news_edit` 等）点「本地上传」没反应；「图片/视频素材库」弹窗点开是空白 —— 而 `/admin/media_manage` 一切正常 | 上传与素材库这两块**由前端脚本驱动**（`image_upload.js` 认领表单并改走 XHR、`media_library.js` 拉列表并回填），而素材库管理页是**服务端直出**、不依赖脚本，所以只有编辑页会坏。这两个脚本由 `app/admin/lib/layout.js` 的 `MODAL_SCRIPTS` 统一引入（旧站是模板各自带 `<script>`，抽成 `partials.js` 时标签丢了→页面有弹窗有表单却没人处理 submit） | 打开编辑页看 HTML 里有没有 `/admin/static/js/image_upload.js?v=`、`/admin/static/js/media_library.js?v=`；改过 `app/admin/static/**` 必须 `node tools/embed_admin_assets.mjs` 并升 `API_VERSION` 后重新部署（`tests/admin_submit_action.test.mjs` 有"资源包不许有孤儿脚本"的检查拦这类回退） |
 | 编辑页正文**没有工具栏**、退回成普通文本域，页面上有一条黄色告警 | 编辑器资源没加载：改了 `static/**` 但没重跑 `tools/embed_admin_assets.mjs`，或没升 `API_VERSION` 导致浏览器拿旧缓存，或部署包不全 | 重跑生成脚本 + 升 `API_VERSION` 重新部署；再硬刷页面（告警文案里也写了原因） |
 | 编辑器里插图"点了没反应"（弹窗里没报错） | 极少数情况下编辑器没有可用插入位置（选区失效）—— 已改为"插入后校验、失败重聚焦重试、仍失败则把原因写进弹窗" | 升级部署到 2.2.0+；若仍失败，先在正文里点一下光标再插 |
@@ -612,3 +692,6 @@ curl.exe -s https://lyjx.250036.xyz/admin/login | Select-String 'rel="icon"'
 4. **是否先开 `DEV_WECHAT_MOCK`** 走一遍验收，再切真密钥。
 5. **运营改数**：切换后改文案/菜单/轮播/公告只能手工执行 SQL（`notes/ops-sql.md`），确认接受。
 6. **旧后端去向**：保留（回滚兜底）还是停服 —— 建议先保留 1~2 周。
+7. **区域迁移走哪条路**：D1/R2 现在都在西欧（自动创建没带 location hint），**建后不可改**。走**方案 A**（新建 `lyjxxapp-d1-apac`/`lyjxxapp-r2-apac` + 迁数据，零删除、可回滚）还是**方案 B**（保留同名，`导出 → 删库 → 建 apac → 导入`，期间不可用）？
+   > 与上面第 1 条直接相关：D1 已经是 **10/10**，方案 A 需要先删掉一个库腾名额 —— **待确认：哪个库可以删**（本仓库看不到账号里另外 9 个库是什么）。如果不愿删，就走方案 B。两条路的详细命令见「区域（Location）与资源重建」。
+8. **R2 自定义域切换窗口**：迁移时要把 `storage.250036.xyz` 从旧桶摘下来挂到新桶（一个域同时只能挂一个桶），摘挂之间素材会短暂 404 —— 确认可以，并挑低峰时段执行。

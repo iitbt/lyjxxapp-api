@@ -15,7 +15,7 @@ binding = "DB"
 database_name = "lyjxxapp-d1"
 # Database ID 必须回填(本地 d1 execute、d1 export/import、cf_region 迁移全靠它定位库);
 # 取法: wrangler d1 list, 或 node tools/cf_region.mjs report(需 CLOUDFLARE_API_TOKEN), 或控制台 D1 详情页
-database_id = "deb99da3-ac57-4d6d-96df-cb950c8fe896"
+# database_id = "deb99da3-ac57-4d6d-96df-cb950c8fe896"
 
 # R2: 桶名必须是 lyjxxapp-r2, 绑定名固定 STORAGE(代码只从 core/config.js 的 storage 取, 兼容早期的 MEDIA)
 # 同样**不要**靠部署时自动建桶(自动建桶没有 location hint → 默认区域), 先手动建好再部署

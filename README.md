@@ -22,7 +22,7 @@ app/                     全部业务代码, 与 fastapi/app/ 逐层对应
 │   ├── assets/          生成物: 旧站 CSS/JS 的文本模块(Worker 与 Node 都能 import)
 │   └── static/          旧站静态原件(生成来源与对照)
 └── sql/                 D1 建表脚本(0001 业务表 / 0002 限流 / 0003 微信 token / 0004 管理员)
-tools/                   导出、行数校验、对拍、真实数据冒烟、素材小抄、缩略图 key 计划
+tools/                   导出、行数校验、对拍、真实数据冒烟、素材小抄、缩略图 key 计划、区域查询/新建
 tests/                   node --test 用例(182 条), 用函数桩模拟 D1/R2, 不联网
 ```
 
@@ -150,7 +150,8 @@ node tools/diff_api.mjs --old https://api0.250036.xyz --new http://127.0.0.1:878
     · 编辑页（`/admin/news_edit`）改成旧站的单列布局（`col-lg-8 mp-frame` 居中，不再用两列的 `editShell`）：字段顺序 标题→分类→封面→视频地址→摘要→正文，正文下方是「发布设置」卡（立即显示/发布时间/活动时间/保存/返回）与「数据统计」卡（仅编辑已有笔记时显示）。
     · 三个带状态筛选的列表（笔记/留言/公告）补上了 `data-status-filter-param="status"`，行内改状态后不再匹配当前筛选的行会**就地隐藏**（旧站行为，原先 CF 侧这段判断是死代码）。
     · **有意不"补"的差异**见 `DEPLOY.md` 的「与旧站的差异（有意为之）」节（如 2.1.4 按需求裁掉的用户笔记审核、未迁的 SQL 工具等）。
-20. **`route_super` 类写路径现在有两道闸**：`app/admin/index.js` 分发前按 `entities.js` 的清单拦一道（原先只靠页面自查，管理员页漏了自查 → 任何登录账号都能增删管理员/重置口令），页面内仍可再自查。
+20. **D1/R2 的区域（Location）建后不可改，而且不能靠"自动创建"**：`wrangler.toml` 里 `database_id` 留空、R2 桶不存在时，首次部署会被 wrangler **自动补建** —— 自动创建**不带 location hint**，落到账号默认区域（本项目拿到的是西欧）。D1 的 primary location 与 R2 的 location hint **建完就改不了**，只能"新建一份 + 迁数据 + 改绑定"，步骤见 `DEPLOY.md`「区域（Location）与资源重建」。查现状：`node tools/cf_region.mjs report`（需 `CLOUDFLARE_API_TOKEN`）或控制台的 Location 列；`wrangler.toml` 注释与 A2/A3 步骤已改成"必须手动建 + 回填 ID"。区域只影响往返延迟，**不影响功能正确性，也不需要改任何代码**。
+21. **`route_super` 类写路径现在有两道闸**：`app/admin/index.js` 分发前按 `entities.js` 的清单拦一道（原先只靠页面自查，管理员页漏了自查 → 任何登录账号都能增删管理员/重置口令），页面内仍可再自查。
 
 ## 六、部署（你自己执行）
 
